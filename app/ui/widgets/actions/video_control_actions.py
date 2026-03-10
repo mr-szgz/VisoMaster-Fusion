@@ -671,7 +671,10 @@ def record_video(main_window: "MainWindow", checked: bool):
             main_window.buttonMediaRecord.blockSignals(False)
             set_record_button_icon_to_stop(main_window)
             return
-        if not str(main_window.control.get("OutputMediaFolder", "")).strip():
+        if (
+            not main_window.outputFolderLineEdit.text()
+            and not main_window.control["OutputToTargetLocationToggle"]
+        ):
             common_widget_actions.create_and_show_messagebox(
                 main_window,
                 "No Output Folder Selected",
@@ -1068,7 +1071,10 @@ def process_compare_checkboxes(main_window: "MainWindow"):
 
 
 def save_current_frame_to_file(main_window: "MainWindow"):
-    if not main_window.outputFolderLineEdit.text():
+    if (
+        not main_window.outputFolderLineEdit.text()
+        and not main_window.control["OutputToTargetLocationToggle"]
+    ):
         common_widget_actions.create_and_show_messagebox(
             main_window,
             "No Output Folder Selected",
@@ -1076,6 +1082,16 @@ def save_current_frame_to_file(main_window: "MainWindow"):
             main_window,
         )
         return
+
+    output_folder = str(main_window.control["OutputMediaFolder"])
+    if main_window.control["OutputToTargetLocationToggle"]:
+        output_folder = os.path.dirname(str(main_window.video_processor.media_path))
+    if main_window.control["ClusterOutputBySourceToggle"] and output_folder:
+        target_face_button = main_window.cur_selected_target_face_button
+        embedding_id = next(iter(target_face_button.assigned_merged_embeddings.keys()))
+        output_folder = os.path.join(
+            output_folder, main_window.merged_embeddings[embedding_id].embedding_name
+        )
     frame = main_window.video_processor.current_frame.copy()
     image_format = "image"
     if main_window.control["ImageFormatToggle"]:
@@ -1084,7 +1100,7 @@ def save_current_frame_to_file(main_window: "MainWindow"):
     if isinstance(frame, numpy.ndarray):
         save_filename = misc_helpers.get_output_file_path(
             main_window.video_processor.media_path,
-            str(main_window.control["OutputMediaFolder"]),
+            output_folder,
             media_type=image_format,
         )
         if save_filename:
@@ -1126,7 +1142,8 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     - Videos: Applies current UI settings (markers, inputs, etc.) by running a full 'record' operation.
     """
     # 1. Check if output folder is set
-    if not main_window.outputFolderLineEdit.text():
+    output_to_target = bool(main_window.control["OutputToTargetLocationToggle"])
+    if not output_to_target and not main_window.outputFolderLineEdit.text():
         common_widget_actions.create_and_show_messagebox(
             main_window,
             "No Output Folder Selected",
@@ -1376,9 +1393,23 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     image_format = "image"
                     if main_window.control["ImageFormatToggle"]:
                         image_format = "jpegimage"
+                    output_folder = str(main_window.control["OutputMediaFolder"]).strip()
+                    if main_window.control["OutputToTargetLocationToggle"]:
+                        output_folder = (
+                            os.path.dirname(str(media_path)) if media_path else ""
+                        )
+                    if main_window.control["ClusterOutputBySourceToggle"] and output_folder:
+                        target_face_button = main_window.cur_selected_target_face_button
+                        embedding_id = next(
+                            iter(target_face_button.assigned_merged_embeddings.keys())
+                        )
+                        output_folder = os.path.join(
+                            output_folder,
+                            main_window.merged_embeddings[embedding_id].embedding_name,
+                        )
                     save_filename = misc_helpers.get_output_file_path(
                         media_path,
-                        str(main_window.control["OutputMediaFolder"]),
+                        output_folder,
                         media_type=image_format,
                     )
 

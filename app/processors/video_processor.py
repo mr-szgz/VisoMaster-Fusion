@@ -1665,10 +1665,19 @@ class VideoProcessor(QObject):
                 if was_triggered_by_job
                 else None
             )
+            output_folder = str(self.main_window.control["OutputMediaFolder"]).strip()
+            if self.main_window.control["OutputToTargetLocationToggle"]:
+                output_folder = os.path.dirname(str(self.media_path)) if self.media_path else ""
+            if self.main_window.control["ClusterOutputBySourceToggle"] and output_folder:
+                target_face_button = self.main_window.cur_selected_target_face_button
+                embedding_id = next(iter(target_face_button.assigned_merged_embeddings.keys()))
+                output_folder = os.path.join(
+                    output_folder, self.main_window.merged_embeddings[embedding_id].embedding_name
+                )
 
             final_file_path = misc_helpers.get_output_file_path(
                 self.media_path,
-                self.main_window.control["OutputMediaFolder"],
+                output_folder,
                 job_name=job_name,
                 use_job_name_for_output=use_job_name,
                 output_file_name=output_file_name,
@@ -2285,10 +2294,19 @@ class VideoProcessor(QObject):
             if was_triggered_by_job
             else None
         )
+        output_folder = str(self.main_window.control["OutputMediaFolder"]).strip()
+        if self.main_window.control["OutputToTargetLocationToggle"]:
+            output_folder = os.path.dirname(str(self.media_path)) if self.media_path else ""
+        if self.main_window.control["ClusterOutputBySourceToggle"] and output_folder:
+            target_face_button = self.main_window.cur_selected_target_face_button
+            embedding_id = next(iter(target_face_button.assigned_merged_embeddings.keys()))
+            output_folder = os.path.join(
+                output_folder, self.main_window.merged_embeddings[embedding_id].embedding_name
+            )
 
         final_file_path = misc_helpers.get_output_file_path(
             self.media_path,
-            self.main_window.control["OutputMediaFolder"],
+            output_folder,
             job_name=job_name,
             use_job_name_for_output=use_job_name,
             output_file_name=output_file_name,
