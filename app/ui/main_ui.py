@@ -178,6 +178,13 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.targetVideosList.setWrapping(True)
         self.targetVideosList.setResizeMode(QtWidgets.QListWidget.Adjust)
 
+        # Remote API results should feel like a media grid, not a local file browser.
+        self.remoteVideoImagesList.setFlow(QtWidgets.QListWidget.LeftToRight)
+        self.remoteVideoImagesList.setWrapping(True)
+        self.remoteVideoImagesList.setResizeMode(QtWidgets.QListWidget.Adjust)
+        self.remoteVideoImagesList.setViewMode(QtWidgets.QListView.IconMode)
+        self.remoteVideoImagesList.setMovement(QtWidgets.QListView.Static)
+
         # Initialize QListWidget for face images
         self.inputFacesList.setFlow(QtWidgets.QListWidget.LeftToRight)
         self.inputFacesList.setWrapping(True)
@@ -192,7 +199,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         # Set up placeholder texts in ListWidgets (Target Videos and Input Faces)
         list_view_actions.set_up_list_widget_placeholder(self, self.targetVideosList)
+        list_view_actions.set_up_list_widget_placeholder(self, self.remoteVideoImagesList)
         list_view_actions.set_up_list_widget_placeholder(self, self.inputFacesList)
+        self._initialize_remote_provider_tab()
 
         # Set up click to select and drop action on ListWidgets
         self.targetVideosList.setAcceptDrops(True)
@@ -356,6 +365,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.TargetMediaCheckBox.toggled.connect(
             partial(layout_actions.show_hide_input_target_media_panel, self)
         )
+        self.RemoteVideoImagesCheckBox.toggled.connect(
+            partial(layout_actions.show_hide_remote_video_images_panel, self)
+        )
         self.InputFacesCheckBox.toggled.connect(
             partial(layout_actions.show_hide_input_faces_panel, self)
         )
@@ -518,6 +530,122 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.scan_progress_dialog.setAutoClose(False)
         self.scan_progress_dialog.setAutoReset(False)
         self.scan_progress_dialog.close()
+
+    def _initialize_remote_provider_tab(self):
+        self.stashApiTokenLineEdit.setEchoMode(
+            QtWidgets.QLineEdit.PasswordEchoOnEdit
+        )
+        self.testStashApiButton.clicked.connect(self._mock_test_stash_api_remote)
+        self.testGraphQlRemoteButton.clicked.connect(self._mock_test_graphql_remote)
+        self.testRcloneRemoteButton.clicked.connect(self._mock_test_rclone_remote)
+
+        provider_groups = (
+            (
+                self._create_remote_provider_toggle(
+                    self.stashApiRemoteHeaderLayout, "enableStashApiRemoteToggle"
+                ),
+                self.stashApiRemoteGroupBox,
+            ),
+            (
+                self._create_remote_provider_toggle(
+                    self.graphQlRemoteHeaderLayout, "enableGraphQlRemoteToggle"
+                ),
+                self.graphQlRemoteGroupBox,
+            ),
+            (
+                self._create_remote_provider_toggle(
+                    self.rcloneRemoteHeaderLayout, "enableRcloneRemoteToggle"
+                ),
+                self.rcloneRemoteGroupBox,
+            ),
+        )
+
+        (
+            self.enableStashApiRemoteToggle,
+            self.enableGraphQlRemoteToggle,
+            self.enableRcloneRemoteToggle,
+        ) = [toggle for toggle, _ in provider_groups]
+
+        for toggle, group_box in provider_groups:
+            self._set_remote_provider_group_state(group_box, toggle.isChecked())
+            toggle.toggled.connect(
+                partial(self._set_remote_provider_group_state, group_box)
+            )
+
+    def _create_remote_provider_toggle(
+        self, layout: QtWidgets.QHBoxLayout, object_name: str
+    ) -> widget_components.ToggleButton:
+        toggle = widget_components.ToggleButton(main_window=self)
+        toggle.setObjectName(object_name)
+        toggle.setChecked(False)
+        layout.addWidget(toggle)
+        return toggle
+
+    def _set_remote_provider_group_state(
+        self, group_box: QtWidgets.QGroupBox, is_enabled: bool
+    ):
+        group_box.setEnabled(is_enabled)
+        group_box.setVisible(is_enabled)
+
+    def _mock_test_stash_api_remote(self):
+        stash_url = self.stashApiUrlLineEdit.text().strip() or "https://stash.example/api"
+        results_limit = self.stashApiResultsLimitComboBox.currentText()
+        output_lines = [
+            f"Stash API test complete: {stash_url}",
+            f"Results limit: {results_limit}",
+            "",
+            "Video query: OK",
+            f'Query: findScenes(filter: {{title: {{value: "sample", modifier: INCLUDES}}}}, per_page: {results_limit})',
+            '1. Scene 1824 | "Warehouse Camera A" | video/mp4',
+            '2. Scene 2049 | "Studio Insert Reel" | video/mp4',
+            "",
+            "Image query: OK",
+            f'Query: findImages(filter: {{title: {{value: "sample", modifier: INCLUDES}}}}, per_page: {results_limit})',
+            '1. Image 511 | "Poster Frame 01" | image/jpeg',
+            '2. Image 644 | "Cover Art Alt" | image/png',
+        ]
+        self.stashApiTestOutputPlainTextEdit.setPlainText("\n".join(output_lines))
+
+    def _mock_test_graphql_remote(self):
+        graphql_url = (
+            self.graphQlEndpointUrlLineEdit.text().strip()
+            or "https://service.example/graphql"
+        )
+        output_lines = [
+            f"GraphQL endpoint test complete: {graphql_url}",
+            "",
+            "Video query: OK",
+            'Query: query RemoteVideos { videos(search: "sample") { id title mimeType } }',
+            '1. video_2201 | "Remote Editorial Cut" | video/mp4',
+            '2. video_2388 | "Proxy Scene Reel" | video/quicktime',
+            "",
+            "Image query: OK",
+            'Query: query RemoteImages { images(search: "sample") { id title mimeType } }',
+            '1. image_801 | "Storyboard Frame 04" | image/jpeg',
+            '2. image_944 | "Title Plate" | image/png',
+        ]
+        self.graphQlTestOutputPlainTextEdit.setPlainText("\n".join(output_lines))
+
+    def _mock_test_rclone_remote(self):
+        remote_name = self.rcloneRemoteNameLineEdit.text().strip() or "media-remote"
+        root_path = self.rcloneRootPathLineEdit.text().strip() or "/library/path"
+        command_prefix = self.rcloneCommandPrefixLineEdit.text().strip() or "rclone"
+        output_lines = [
+            f"Rclone test complete: {remote_name}:{root_path}",
+            f"Command prefix: {command_prefix}",
+            "",
+            "Directory listing: OK",
+            f'Command: {command_prefix} lsf {remote_name}:{root_path}',
+            "1. Movies/",
+            "2. Images/",
+            "3. Ingest/",
+            "",
+            "Media probe: OK",
+            f'Command: {command_prefix} lsjson {remote_name}:{root_path}/Images --max-depth 1',
+            '1. "cover-001.jpg" | image/jpeg',
+            '2. "teaser-frame.png" | image/png',
+        ]
+        self.rcloneTestOutputPlainTextEdit.setPlainText("\n".join(output_lines))
 
     def update_denoiser_controls_visibility_for_pass(
         self, pass_suffix: str, current_mode_text: str
@@ -691,7 +819,35 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setupUi(self)
         self.initialize_variables()
         self.initialize_widgets()
+        self.apply_default_left_dock_layout()
         self.load_last_workspace()
+
+    def apply_default_left_dock_layout(self):
+        self.splitDockWidget(
+            self.input_Target_DockWidget,
+            self.remote_VideoImages_DockWidget,
+            QtCore.Qt.Orientation.Vertical,
+        )
+        self.splitDockWidget(
+            self.remote_VideoImages_DockWidget,
+            self.input_Faces_DockWidget,
+            QtCore.Qt.Orientation.Vertical,
+        )
+        self.splitDockWidget(
+            self.input_Faces_DockWidget,
+            self.jobManagerDockWidget,
+            QtCore.Qt.Orientation.Vertical,
+        )
+        self.resizeDocks(
+            [
+                self.input_Target_DockWidget,
+                self.remote_VideoImages_DockWidget,
+                self.input_Faces_DockWidget,
+                self.jobManagerDockWidget,
+            ],
+            [360, 260, 320, 230],
+            QtCore.Qt.Orientation.Vertical,
+        )
 
     @QtCore.Slot(list)
     def handle_unload_request(self, model_names: list):

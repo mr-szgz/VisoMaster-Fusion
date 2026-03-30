@@ -540,6 +540,14 @@ def show_hide_input_target_media_panel(main_window: "MainWindow", checked):
     fit_image_to_view_onchange(main_window)
 
 
+def show_hide_remote_video_images_panel(main_window: "MainWindow", checked):
+    if checked:
+        main_window.remote_VideoImages_DockWidget.show()
+    else:
+        main_window.remote_VideoImages_DockWidget.hide()
+    fit_image_to_view_onchange(main_window)
+
+
 def show_hide_input_faces_panel(main_window: "MainWindow", checked):
     if checked:
         main_window.input_Faces_DockWidget.show()
@@ -569,6 +577,7 @@ def show_hide_theatre_mode_panels(main_window: "MainWindow", checked):
     def collect_states():
         return {
             "TargetMediaCheckBox": main_window.TargetMediaCheckBox.isChecked(),
+            "RemoteVideoImagesCheckBox": main_window.RemoteVideoImagesCheckBox.isChecked(),
             "facesPanelCheckBox": main_window.facesPanelCheckBox.isChecked(),
             "parametersPanelCheckBox": main_window.parametersPanelCheckBox.isChecked(),
             "InputFacesCheckBox": main_window.InputFacesCheckBox.isChecked(),
@@ -579,6 +588,9 @@ def show_hide_theatre_mode_panels(main_window: "MainWindow", checked):
     def apply_states(states):
         main_window.TargetMediaCheckBox.setChecked(
             states.get("TargetMediaCheckBox", True)
+        )
+        main_window.RemoteVideoImagesCheckBox.setChecked(
+            states.get("RemoteVideoImagesCheckBox", True)
         )
         main_window.facesPanelCheckBox.setChecked(
             states.get("facesPanelCheckBox", True)
@@ -598,6 +610,7 @@ def show_hide_theatre_mode_panels(main_window: "MainWindow", checked):
             main_window._theatre_mode_panel_states
             or {
                 "TargetMediaCheckBox": False,
+                "RemoteVideoImagesCheckBox": False,
                 "facesPanelCheckBox": False,
                 "parametersPanelCheckBox": False,
                 "InputFacesCheckBox": False,
@@ -611,6 +624,7 @@ def show_hide_theatre_mode_panels(main_window: "MainWindow", checked):
             main_window._theatre_normal_panel_states
             or {
                 "TargetMediaCheckBox": True,
+                "RemoteVideoImagesCheckBox": True,
                 "facesPanelCheckBox": True,
                 "parametersPanelCheckBox": True,
                 "InputFacesCheckBox": True,

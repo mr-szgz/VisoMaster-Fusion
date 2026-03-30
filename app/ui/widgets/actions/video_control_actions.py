@@ -2571,6 +2571,7 @@ def toggle_theatre_mode(main_window: "MainWindow"):
         # 1. Save state and hide Docks, MenuBar
         main_window._saved_dock_states = {
             "input_Target_DockWidget": main_window.input_Target_DockWidget.isVisible(),
+            "remote_VideoImages_DockWidget": main_window.remote_VideoImages_DockWidget.isVisible(),
             "input_Faces_DockWidget": main_window.input_Faces_DockWidget.isVisible(),
             "jobManagerDockWidget": main_window.jobManagerDockWidget.isVisible(),
             "controlOptionsDockWidget": main_window.controlOptionsDockWidget.isVisible(),
@@ -2579,6 +2580,7 @@ def toggle_theatre_mode(main_window: "MainWindow"):
         }
 
         main_window.input_Target_DockWidget.hide()
+        main_window.remote_VideoImages_DockWidget.hide()
         main_window.input_Faces_DockWidget.hide()
         main_window.jobManagerDockWidget.hide()
         main_window.controlOptionsDockWidget.hide()
@@ -2715,6 +2717,8 @@ def toggle_theatre_mode(main_window: "MainWindow"):
         states = getattr(main_window, "_saved_dock_states", {})
         if states.get("input_Target_DockWidget"):
             main_window.input_Target_DockWidget.show()
+        if states.get("remote_VideoImages_DockWidget"):
+            main_window.remote_VideoImages_DockWidget.show()
         if states.get("input_Faces_DockWidget"):
             main_window.input_Faces_DockWidget.show()
         if states.get("jobManagerDockWidget"):

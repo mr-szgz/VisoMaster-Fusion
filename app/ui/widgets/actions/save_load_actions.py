@@ -229,6 +229,9 @@ def load_saved_workspace(
         with open(data_filename, "r") as data_file:  # pylint: disable=unspecified-encoding
             data = json.load(data_file)
         try:
+            window_state = data.get("window_state_data", {})
+            has_remote_video_images_state = "RemoteVideoImagesCheckBox" in window_state
+
             list_view_actions.clear_stop_loading_input_media(main_window)
             list_view_actions.clear_stop_loading_target_media(main_window)
             main_window.target_videos = {}
@@ -518,7 +521,6 @@ def load_saved_workspace(
                 )
 
             # Restore Window State
-            window_state = data.get("window_state_data", {})
             is_maximized = window_state.get("isMaximized", False)
             is_fullScreen = window_state.get("isFullScreen", False)
 
@@ -539,6 +541,9 @@ def load_saved_workspace(
                 )
             main_window.TargetMediaCheckBox.setChecked(
                 window_state.get("TargetMediaCheckBox", True)
+            )
+            main_window.RemoteVideoImagesCheckBox.setChecked(
+                window_state.get("RemoteVideoImagesCheckBox", True)
             )
             main_window.InputFacesCheckBox.setChecked(
                 window_state.get("InputFacesCheckBox", True)
@@ -572,8 +577,13 @@ def load_saved_workspace(
                 try:
                     ba = QtCore.QByteArray.fromBase64(dock_state_str.encode("utf-8"))
                     main_window.restoreState(ba)
+                    if not has_remote_video_images_state:
+                        main_window.apply_default_left_dock_layout()
                 except Exception as e:
                     print(f"[WARN] Failed to restore dock layout: {e}")
+                    main_window.apply_default_left_dock_layout()
+            else:
+                main_window.apply_default_left_dock_layout()
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             QtWidgets.QMessageBox.critical(
                 main_window, "Error", f"Failed to load workspace: {e}"
@@ -605,6 +615,7 @@ def save_current_workspace(
         "isMaximized": main_window.isMaximized(),
         "isFullScreen": main_window.is_full_screen,
         "TargetMediaCheckBox": main_window.TargetMediaCheckBox.isChecked(),
+        "RemoteVideoImagesCheckBox": main_window.RemoteVideoImagesCheckBox.isChecked(),
         "InputFacesCheckBox": main_window.InputFacesCheckBox.isChecked(),
         "JobsCheckBox": main_window.JobsCheckBox.isChecked(),
         "facesPanelCheckBox": main_window.facesPanelCheckBox.isChecked(),

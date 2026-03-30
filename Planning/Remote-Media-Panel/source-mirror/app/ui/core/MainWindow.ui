@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QHBoxLayout" name="horizontalLayout">
+    <item>
+     <widget class="QWidget" name="mediaLayout" native="true">
+      <layout class="QVBoxLayout" name="verticalLayout">
+       <item>
+        <layout class="QHBoxLayout" name="panelVisibilityCheckBoxLayout">
+         <item>
+          <!-- Step: Panel visibility toggle for Import panel | Pattern: app/ui/core/MainWindow.ui:37-46 -->
+          <widget class="QCheckBox" name="ImportMediaCheckBox">
+           <!-- Step: Toggle label for top-bar panel switch | Pattern: app/ui/core/MainWindow.ui:40-42 -->
+           <property name="text"><string>Import Videos/Images</string></property>
+           <!-- Step: Default panel visible on launch | Pattern: app/ui/core/MainWindow.ui:43-45 -->
+           <property name="checked"><bool>true</bool></property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+
+  <!-- Step: Add docked Import panel in left dock area | Pattern: app/ui/core/MainWindow.ui:819-840 -->
+  <widget class="QDockWidget" name="import_Media_DockWidget">
+   <!-- Step: Match panel sizing behavior with existing media docks | Pattern: app/ui/core/MainWindow.ui:826-831 -->
+   <property name="minimumSize"><size><width>324</width><height>230</height></size></property>
+   <!-- Step: Allow docking and floating like existing panels | Pattern: app/ui/core/MainWindow.ui:832-834 -->
+   <property name="features"><set>QDockWidget::DockWidgetFeature::DockWidgetFloatable|QDockWidget::DockWidgetFeature::DockWidgetMovable</set></property>
+   <!-- Step: Dock window title for panel header | Pattern: app/ui/core/MainWindow.ui:835-837 -->
+   <property name="windowTitle"><string>Import Videos/Images</string></property>
+   <!-- Step: Place panel in left dock area | Pattern: app/ui/core/MainWindow.ui:838-840 -->
+   <attribute name="dockWidgetArea"><number>1</number></attribute>
+
+   <widget class="QWidget" name="dockWidgetContents_ImportMedia">
+    <layout class="QVBoxLayout" name="vboxLayout_ImportMedia">
+     <item>
+      <!-- Step: Top-level Browser/Settings panel tabs | Pattern: app/ui/core/MainWindow.ui:1165-1196 -->
+      <widget class="QTabWidget" name="importMediaPanelTabWidget">
+
+       <widget class="QWidget" name="importMediaBrowserTab">
+        <attribute name="title"><string>Browser</string></attribute>
+        <layout class="QVBoxLayout" name="importMediaBrowserLayout">
+         <item>
+          <!-- Step: Media-type split tabs in browser | Pattern: app/ui/core/MainWindow.ui:1165-1196 -->
+          <widget class="QTabWidget" name="importMediaBrowserTypeTabs">
+
+           <widget class="QWidget" name="importMediaVideosTab">
+            <attribute name="title"><string>Videos</string></attribute>
+            <layout class="QVBoxLayout" name="importMediaVideosLayout">
+             <!-- Step: Video search input | Pattern: app/ui/core/MainWindow.ui:900-907 -->
+             <item><widget class="QLineEdit" name="importVideosSearchBox"/></item>
+             <!-- Step: Trigger video browse action | Pattern: app/ui/core/MainWindow.ui:864-890 -->
+             <item><widget class="QPushButton" name="buttonImportVideosSearch"/></item>
+             <!-- Step: Video browse results list | Pattern: app/ui/core/MainWindow.ui:963-970 -->
+             <item><widget class="QListWidget" name="importVideosList"/></item>
+            </layout>
+           </widget>
+
+           <widget class="QWidget" name="importMediaImagesTab">
+            <attribute name="title"><string>Images</string></attribute>
+            <layout class="QVBoxLayout" name="importMediaImagesLayout">
+             <!-- Step: Image search input | Pattern: app/ui/core/MainWindow.ui:900-907 -->
+             <item><widget class="QLineEdit" name="importImagesSearchBox"/></item>
+             <!-- Step: Trigger image browse action | Pattern: app/ui/core/MainWindow.ui:864-890 -->
+             <item><widget class="QPushButton" name="buttonImportImagesSearch"/></item>
+             <!-- Step: Image browse results list | Pattern: app/ui/core/MainWindow.ui:963-970 -->
+             <item><widget class="QListWidget" name="importImagesList"/></item>
+            </layout>
+           </widget>
+
+           <widget class="QWidget" name="importSavedVideosTab">
+            <attribute name="title"><string>Saved Videos</string></attribute>
+            <layout class="QVBoxLayout" name="importSavedVideosLayout">
+             <!-- Step: Refresh saved video queries/items | Pattern: app/ui/core/MainWindow.ui:864-890 -->
+             <item><widget class="QPushButton" name="buttonImportSavedVideosRefresh"/></item>
+             <!-- Step: Saved video entries list | Pattern: app/ui/core/MainWindow.ui:963-970 -->
+             <item><widget class="QListWidget" name="importSavedVideosList"/></item>
+            </layout>
+           </widget>
+
+           <widget class="QWidget" name="importSavedImagesTab">
+            <attribute name="title"><string>Saved Images</string></attribute>
+            <layout class="QVBoxLayout" name="importSavedImagesLayout">
+             <!-- Step: Refresh saved image queries/items | Pattern: app/ui/core/MainWindow.ui:864-890 -->
+             <item><widget class="QPushButton" name="buttonImportSavedImagesRefresh"/></item>
+             <!-- Step: Saved image entries list | Pattern: app/ui/core/MainWindow.ui:963-970 -->
+             <item><widget class="QListWidget" name="importSavedImagesList"/></item>
+            </layout>
+           </widget>
+
+          </widget>
+         </item>
+        </layout>
+       </widget>
+
+       <widget class="QWidget" name="importMediaSettingsTab">
+        <attribute name="title"><string>Settings</string></attribute>
+        <layout class="QVBoxLayout" name="importMediaSettingsLayout">
+         <!-- Step: Provider selector for remote source | Pattern: app/ui/core/MainWindow.ui:1249-1268 -->
+         <item><widget class="QComboBox" name="remoteImportProviderComboBox"/></item>
+         <!-- Step: Provider endpoint/location input | Pattern: app/ui/core/MainWindow.ui:1254-1258 -->
+         <item><widget class="QLineEdit" name="remoteImportEndpointLineEdit"/></item>
+         <!-- Step: Video query/settings text block | Pattern: app/ui/core/MainWindow.ui:1250-1268 -->
+         <item><widget class="QPlainTextEdit" name="remoteImportVideoQueryPlainText"/></item>
+         <!-- Step: Image query/settings text block | Pattern: app/ui/core/MainWindow.ui:1250-1268 -->
+         <item><widget class="QPlainTextEdit" name="remoteImportImageQueryPlainText"/></item>
+         <!-- Step: Saved-search query/settings text block | Pattern: app/ui/core/MainWindow.ui:1250-1268 -->
+         <item><widget class="QPlainTextEdit" name="remoteImportSavedSearchesQueryPlainText"/></item>
+         <!-- Step: Commit settings to control state | Pattern: app/ui/core/MainWindow.ui:1261-1264 -->
+         <item><widget class="QPushButton" name="buttonRemoteImportApplySettings"/></item>
+        </layout>
+       </widget>
+
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+ </widget>
+</ui>
