@@ -1,0 +1,5 @@
+interface:
+  display_name: "Keep a Changelog"
+  short_description: "Maintain and validate CHANGELOG.md using Keep a Changelog and Semantic Versioning."
+  default_prompt: "Use $keepachangelog when updating, validating, or preparing a Keep a Changelog style CHANGELOG.md."
+
