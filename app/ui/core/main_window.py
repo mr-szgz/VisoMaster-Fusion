@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDockWidget,
     QSizePolicy, QSlider, QSpacerItem, QSpinBox,
     QTabWidget, QVBoxLayout, QWidget)
 from app.ui.widgets.sortable_widgets import TargetVideosListWidget
+from app.ui.widgets.colorable_widgets import InputEmbeddingsList
 from app.ui.core import media_rc
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -348,7 +349,7 @@ class Ui_MainWindow(object):
         self.controlButtonsLayout.addWidget(self.editFacesButton)
         self.verticalLayout_8.addWidget(self.verticalWidget)
         self.gridLayout_2.addWidget(self.facesButtonsWidget, 1, 0, 1, 1)
-        self.inputEmbeddingsList = QListWidget(self.facesPanelGroupBox)
+        self.inputEmbeddingsList = InputEmbeddingsList(self.facesPanelGroupBox)
         self.inputEmbeddingsList.setObjectName(u"inputEmbeddingsList")
         sizePolicy8 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         sizePolicy8.setHorizontalStretch(4)

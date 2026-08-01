@@ -16,6 +16,7 @@ from app.ui.widgets import widget_components
 import app.helpers.miscellaneous as misc_helpers
 from app.ui.widgets import ui_workers
 from app.ui.widgets import sortable_widgets
+from app.ui.widgets import colorable_widgets
 
 if TYPE_CHECKING:
     from app.ui.main_ui import MainWindow
@@ -532,7 +533,7 @@ def create_and_add_embed_button_to_list(
     button_size = QtCore.QSize(*_EMBED_BUTTON_SIZE)
     embed_button.setFixedSize(button_size)
 
-    list_item = QtWidgets.QListWidgetItem(inputEmbeddingsList)
+    list_item = colorable_widgets.ColorableListWidgetItem(inputEmbeddingsList)
     list_item.setSizeHint(button_size)
 
     """

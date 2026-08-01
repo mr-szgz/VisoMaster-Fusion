@@ -735,7 +735,7 @@
            </widget>
           </item>
           <item row="1" column="2">
-           <widget class="QListWidget" name="inputEmbeddingsList">
+           <widget class="InputEmbeddingsList" name="inputEmbeddingsList">
             <property name="sizePolicy">
              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
               <horstretch>4</horstretch>
@@ -1864,6 +1864,11 @@
    <class>TargetVideosListWidget</class>
    <extends>QListWidget</extends>
    <header>app.ui.widgets.sortable_widgets</header>
+  </customwidget>
+  <customwidget>
+   <class>InputEmbeddingsList</class>
+   <extends>QListWidget</extends>
+   <header>app.ui.widgets.colorable_widgets</header>
   </customwidget>
  </customwidgets>
  <resources>

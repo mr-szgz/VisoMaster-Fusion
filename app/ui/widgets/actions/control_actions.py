@@ -61,9 +61,9 @@ def change_threads_number(main_window: "MainWindow", new_threads_number: int) ->
 
 
 def change_theme(main_window: "MainWindow", new_theme):
+    styles_dir = Path(__file__).resolve().parent.parent.parent / "styles"
     def get_style_data(filename, theme="dark", custom_colors=None):
         custom_colors = custom_colors or {"primary": "#4090a3"}
-        styles_dir = Path(__file__).resolve().parent.parent.parent / "styles"
         with open(styles_dir / filename, "r") as f:  # pylint: disable=unspecified-encoding
             _style = f.read()
             _style = (
@@ -114,7 +114,13 @@ def change_theme(main_window: "MainWindow", new_theme):
     elif new_theme == "Monokai":
         _style = get_style_data("monokai.qss", "dark")
 
-    app.setStyleSheet(_style)
+    # colorable buttons stylesheet
+    button_styles = (
+        styles_dir / "button" / "color_labels.qss"
+    ).read_text(encoding="utf-8")
+
+    app.setStyleSheet(f"{_style}\n{button_styles}")
+
     main_window._vram_high_style_active = None
     common_widget_actions.update_gpu_memory_progressbar(main_window)
     main_window.update()
