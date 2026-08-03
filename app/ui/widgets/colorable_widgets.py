@@ -15,13 +15,13 @@ class ColorableDataRole(enum.IntEnum):
 class ColorableCard:
     """Mixin that adds button-color styling to a QPushButton subclass."""
 
-    def setButtonColor(self, color_name: str) -> None:
+    def setButtonColor(self, color_name: str | None) -> None:
         self.setProperty("buttonColor", color_name)
         self.style().unpolish(self)
         self.style().polish(self)
 
-    def buttonColor(self) -> str:
-        return self.property("buttonColor") or ""
+    def buttonColor(self) -> str | None:
+        return self.property("buttonColor")
 
 
 class ColorableListWidget(QtWidgets.QListWidget):
@@ -41,10 +41,10 @@ class InputEmbeddingsList(ColorableListWidget):
 
 
 class ColorableListWidgetItem(QtWidgets.QListWidgetItem):
-    def buttonColor(self) -> str:
+    def buttonColor(self) -> str | None:
         return self.data(ColorableDataRole.ButtonColorRole)
 
-    def setButtonColor(self, color_name: str) -> None:
+    def setButtonColor(self, color_name: str | None) -> None:
         self.setData(ColorableDataRole.ButtonColorRole, color_name)
 
         if list_widget := self.listWidget():
@@ -59,22 +59,30 @@ class ColorLabelDialog(QtWidgets.QDialog):
         self.setWindowIcon(QtGui.QIcon(":/media/media/visomaster_small.png"))
 
         self.color_combobox = QtWidgets.QComboBox(self)
-        self.color_combobox.addItems(
-            [
-                "red",
-                "orange",
-                "amber",
-                "yellow",
-                "lime",
-                "green",
-                "teal",
-                "cyan",
-                "blue",
-                "indigo",
-                "purple",
-                "pink",
-            ]
-        )
+        for label, color_name in [
+            ("None", None),
+            ("red", "red"),
+            ("orange", "orange"),
+            ("amber", "amber"),
+            ("yellow", "yellow"),
+            ("lime", "lime"),
+            ("green", "green"),
+            ("teal", "teal"),
+            ("cyan", "cyan"),
+            ("blue", "blue"),
+            ("indigo", "indigo"),
+            ("purple", "purple"),
+            ("pink", "pink"),
+            ("brown", "brown"),
+            ("brunette", "brunette"),
+            ("blonde", "blonde"),
+            ("dark blonde", "dark_blonde"),
+            ("black hair", "black_hair"),
+            ("silver", "silver"),
+            ("platinum", "platinum"),
+            ("grey", "grey"),
+        ]:
+            self.color_combobox.addItem(label, color_name)
 
         button_box = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
@@ -88,5 +96,5 @@ class ColorLabelDialog(QtWidgets.QDialog):
         layout.addWidget(self.color_combobox)
         layout.addWidget(button_box)
 
-    def selectedColor(self) -> str:
-        return self.color_combobox.currentText()
+    def selectedColor(self) -> str | None:
+        return self.color_combobox.currentData()

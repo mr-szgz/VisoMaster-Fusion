@@ -387,6 +387,11 @@ def _load_job_embeddings(main_window: "MainWindow", data: dict):
             embedding_id=embedding_id,
         )
 
+        if "label_color" in embedding_data:
+            main_window.merged_embeddings[
+                embedding_id
+            ].list_item.setButtonColor(embedding_data["label_color"])
+
         # Restore KV map if it exists
         if embedding_id in main_window.merged_embeddings:
             embed_button = main_window.merged_embeddings[embedding_id]
@@ -1185,6 +1190,7 @@ def _serialize_job_data(main_window: "MainWindow") -> dict:
             },
             "embedding_name": embed_button.embedding_name,
             "kv_map": kv_map_path,
+            "label_color": embed_button.buttonColor(),
         }
 
     # Serialize Target Media (excluding webcams)

@@ -244,6 +244,11 @@ def open_embeddings_from_file(main_window: "MainWindow"):
                         embedding_id=embedding_id,
                     )
 
+                    if "label_color" in embed_data:
+                        main_window.merged_embeddings[
+                            embedding_id
+                        ].list_item.setButtonColor(embed_data["label_color"])
+
                     # Restore KV map if it exists
                     if embedding_id in main_window.merged_embeddings:
                         embed_button = main_window.merged_embeddings[embedding_id]
@@ -349,6 +354,7 @@ def save_embeddings_to_file(main_window: "MainWindow", save_as=False):
                     k: v.tolist() for k, v in embed_button.embedding_store.items()
                 },  # Convert embeddings to lists
                 "kv_map": kv_map_path,  # Save the path to JSON file
+                "label_color": embed_button.buttonColor(),
             }
         )
 
@@ -631,6 +637,11 @@ def load_saved_workspace(
                     embedding_store_loaded,
                     embedding_id=embedding_id,
                 )
+
+                if "label_color" in embedding_data:
+                    main_window.merged_embeddings[
+                        embedding_id
+                    ].list_item.setButtonColor(embedding_data["label_color"])
 
                 if embedding_id in main_window.merged_embeddings:
                     embed_button = main_window.merged_embeddings[embedding_id]
@@ -1215,6 +1226,7 @@ def save_current_workspace(
                 for model, emb in embedding_button.embedding_store.items()
             },
             "kv_map": kv_map_path,
+            "label_color": embedding_button.buttonColor(),
         }
     # --- Serialize Markers ---
     # Convert Parameters inside the markers from ParametersDict to dict before saving
@@ -1418,6 +1430,7 @@ def save_current_job(main_window: "MainWindow"):
             "name": emb.embedding_name,
             "store": {m: e.tolist() for m, e in emb.embedding_store.items()},
             "kv_map": kv_map_path,
+            "label_color": emb.buttonColor(),
         }
 
     # Prepare job data

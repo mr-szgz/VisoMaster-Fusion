@@ -17,7 +17,7 @@ import json
 import copy
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import numpy as np
 import pytest
@@ -364,7 +364,62 @@ def _make_embedding_button(*, name="Embedding 1", kv_map=None):
         embedding_name=name,
         embedding_store={"arcface": np.array([1.0, 2.0], dtype=np.float32)},
         kv_map=kv_map,
+        buttonColor=lambda: "indigo",
     )
+
+
+@pytest.mark.parametrize(
+    ("saved_color", "expected_calls"),
+    [("indigo", [call("indigo")]), (None, [])],
+)
+def test_open_embeddings_from_file_restores_optional_label_color(
+    tmp_path, monkeypatch, saved_color, expected_calls
+):
+    embedding_file = tmp_path / "embeddings.json"
+    embedding_data = {
+        "name": "Embedding 1",
+        "embedding_store": {"arcface": [1.0, 2.0]},
+        "kv_map": None,
+    }
+    if saved_color is not None:
+        embedding_data["label_color"] = saved_color
+    embedding_file.write_text(json.dumps([embedding_data]))
+
+    main_window = _make_embedding_main_window(tmp_path)
+    main_window.target_faces = {}
+    color_setter = MagicMock()
+
+    monkeypatch.setattr(
+        save_load_actions.video_control_actions,
+        "block_if_issue_scan_active",
+        lambda *_args: False,
+    )
+    monkeypatch.setattr(
+        save_load_actions.QtWidgets,
+        "QFileDialog",
+        SimpleNamespace(getOpenFileName=lambda *_args, **_kwargs: (str(embedding_file), "")),
+    )
+    monkeypatch.setattr(
+        save_load_actions.card_actions,
+        "clear_merged_embeddings",
+        lambda *_args: None,
+    )
+
+    def create_embedding(_main_window, _name, embedding_store, embedding_id):
+        assert np.array_equal(embedding_store["arcface"], np.array([1.0, 2.0]))
+        main_window.merged_embeddings[embedding_id] = SimpleNamespace(
+            list_item=SimpleNamespace(setButtonColor=color_setter)
+        )
+
+    monkeypatch.setattr(
+        save_load_actions.list_view_actions,
+        "create_and_add_embed_button_to_list",
+        create_embedding,
+    )
+
+    save_load_actions.open_embeddings_from_file(main_window)
+
+    assert color_setter.call_args_list == expected_calls
 
 
 def test_save_embeddings_to_file_cancelled_confirmation_skips_writes(
@@ -445,6 +500,7 @@ def test_save_embeddings_to_file_confirmed_confirmation_writes_file(
             "name": "Embedding 1",
             "embedding_store": {"arcface": [1.0, 2.0]},
             "kv_map": None,
+            "label_color": "indigo",
         }
     ]
     assert main_window.loaded_embedding_filename == str(target_file)
@@ -487,6 +543,7 @@ def test_save_embeddings_to_file_save_as_skips_confirmation(tmp_path, monkeypatc
             "name": "Embedding 1",
             "embedding_store": {"arcface": [1.0, 2.0]},
             "kv_map": None,
+            "label_color": "indigo",
         }
     ]
     assert main_window.loaded_embedding_filename == str(save_as_file)

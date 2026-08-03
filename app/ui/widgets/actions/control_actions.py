@@ -116,7 +116,7 @@ def change_theme(main_window: "MainWindow", new_theme):
 
     # colorable buttons stylesheet
     button_styles = (
-        styles_dir / "button" / "color_labels.qss"
+        styles_dir / "labels" / "QPushButton.qss"
     ).read_text(encoding="utf-8")
 
     app.setStyleSheet(f"{_style}\n{button_styles}")
