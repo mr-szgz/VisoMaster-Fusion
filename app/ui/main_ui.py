@@ -236,6 +236,13 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         # Initialize list widgets with consistent sizing and layout configuration
         list_view_actions.initialize_media_list_widgets(self)
         list_view_actions.initialize_embeddings_list_widget(self)
+        self.inputEmbeddingsList.colorFiltersChanged.connect(
+            partial(filter_actions.filter_merged_embeddings, self)
+        )
+        self.inputEmbeddingsList.setColorFilterLayout(
+            self.horizontalLayout_3,
+            self.openEditorButton,
+        )
         self._configure_output_folder_controls()
         self._configure_file_menu_actions()
 

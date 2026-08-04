@@ -545,8 +545,10 @@ class FilterWorker(qtc.QThread):
         search_text = self.search_text
 
         visible_indices = []
-        for index, embedding_name in self.items_snapshot:
-            if not search_text or search_text in embedding_name.lower():
+        for index, embedding_name, color_visible in self.items_snapshot:
+            if color_visible and (
+                not search_text or search_text in embedding_name.lower()
+            ):
                 visible_indices.append(index)
 
         self.filtered_results.emit(visible_indices, len(self.items_snapshot))

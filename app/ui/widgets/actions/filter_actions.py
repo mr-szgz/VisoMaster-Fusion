@@ -85,7 +85,15 @@ def filter_merged_embeddings(main_window: "MainWindow", *args):
         item = main_window.inputEmbeddingsList.item(i)
         item_widget = main_window.inputEmbeddingsList.itemWidget(item)
         if item_widget is not None:
-            items_snapshot.append((i, item_widget.embedding_name))
+            items_snapshot.append(
+                (
+                    i,
+                    item_widget.embedding_name,
+                    main_window.inputEmbeddingsList.isColorVisible(
+                        item.buttonColor()
+                    ),
+                )
+            )
 
     worker = main_window.merged_embeddings_filter_worker
     worker.search_text = search_text

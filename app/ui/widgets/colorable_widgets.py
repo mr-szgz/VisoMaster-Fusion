@@ -1,11 +1,47 @@
 from __future__ import annotations
 
 import enum
+import re
 from typing import TYPE_CHECKING
-from PySide6 import QtWidgets, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
 
 if TYPE_CHECKING:
     from app.ui.main_ui import MainWindow
+
+
+COLOR_LABELS = (
+    ("red", "red", "#E74C3C"),
+    ("orange", "orange", "#E67E22"),
+    ("oxblood", "oxblood", "#5A1018"),
+    ("amber", "amber", "#F39C12"),
+    ("yellow", "yellow", "#D4AC0D"),
+    ("lime", "lime", "#7CB342"),
+    ("green", "green", "#27AE60"),
+    ("teal", "teal", "#009688"),
+    ("cyan", "cyan", "#0097A7"),
+    ("blue", "blue", "#2980B9"),
+    ("indigo", "indigo", "#4F5BD5"),
+    ("purple", "purple", "#8E44AD"),
+    ("pink", "pink", "#D81B60"),
+    ("brown", "brown", "#8B5A2B"),
+    ("brunette", "brunette", "#4A2C20"),
+    ("blonde", "blonde", "#E5C07B"),
+    ("dark blonde", "dark_blonde", "#A67B5B"),
+    ("dark oak", "dark_oak", "#3B2922"),
+    ("black hair", "black_hair", "#36454F"),
+    ("silver", "silver", "#C0C0C0"),
+    ("platinum blonde", "platinum_blonde", "#E5D6B3"),
+    ("grey", "grey", "#808080"),
+)
+COLOR_VALUES = {color_name: color for _, color_name, color in COLOR_LABELS}
+COLOR_NAMES = {color_name: label for label, color_name, _ in COLOR_LABELS}
+
+
+def natural_sort_key(text: str) -> list[str | int]:
+    return [
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r"(\d+)", text)
+    ]
 
 
 class ColorableDataRole(enum.IntEnum):
@@ -24,8 +60,185 @@ class ColorableCard:
         return self.property("buttonColor")
 
 
+class ColorButton(QtWidgets.QPushButton):
+    """Checkable color control with a swatch and optional text label."""
+
+    def __init__(
+        self,
+        color_name: str | None,
+        color: QtGui.QColor | str | None,
+        show_text: bool = True,
+        text: str | None = None,
+        parent: QtWidgets.QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._color_name = color_name
+        self._display_text = text or color_name
+        self._color = QtGui.QColor(color) if color is not None else None
+        self._show_text = show_text
+        self.setCheckable(True)
+        self.setChecked(True)
+        if self._color is not None:
+            self.setIcon(self._create_color_icon())
+            self.setIconSize(QtCore.QSize(12, 12))
+        self.setTextVisible(show_text)
+        self.setToolTip(self._display_text)
+        self.setAccessibleName(f"Show {self._display_text} embeddings")
+
+    def _create_color_icon(self) -> QtGui.QIcon:
+        pixmap = QtGui.QPixmap(12, 12)
+        pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+        painter = QtGui.QPainter(pixmap)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        painter.setBrush(self._color)
+        painter.drawRoundedRect(QtCore.QRectF(0, 0, 12, 12), 2, 2)
+        painter.end()
+        return QtGui.QIcon(pixmap)
+
+    def colorName(self) -> str | None:
+        return self._color_name
+
+    def isTextVisible(self) -> bool:
+        return self._show_text
+
+    def setTextVisible(self, visible: bool) -> None:
+        self._show_text = visible
+        self.setText(self._display_text if visible else "")
+
+
 class ColorableListWidget(QtWidgets.QListWidget):
     """QListWidget that applies an item's button color to its item widget."""
+
+    colorFiltersChanged = QtCore.Signal()
+
+    def __init__(self, parent: QtWidgets.QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._color_filter_layout: QtWidgets.QBoxLayout | None = None
+        self._color_filter_anchor: QtWidgets.QWidget | None = None
+        self._color_filter_show_text = True
+        self._color_filter_buttons: dict[str | None, ColorButton] = {}
+        self._select_all_color_filters_button: QtWidgets.QPushButton | None = None
+        self._reset_color_filters_button: QtWidgets.QPushButton | None = None
+
+    def setColorFilterLayout(
+        self,
+        layout: QtWidgets.QBoxLayout,
+        before_widget: QtWidgets.QWidget,
+        show_text: bool = True,
+    ) -> None:
+        self._color_filter_layout = layout
+        self._color_filter_anchor = before_widget
+        self._color_filter_show_text = show_text
+
+        button_parent = before_widget.parentWidget()
+        self._select_all_color_filters_button = QtWidgets.QPushButton(
+            "All", button_parent
+        )
+        self._select_all_color_filters_button.setAccessibleName(
+            "Select all embedding color filters"
+        )
+        self._select_all_color_filters_button.clicked.connect(
+            self.selectAllColorFilters
+        )
+        self._reset_color_filters_button = QtWidgets.QPushButton(
+            "Reset", button_parent
+        )
+        self._reset_color_filters_button.setAccessibleName(
+            "Deselect all embedding color filters"
+        )
+        self._reset_color_filters_button.clicked.connect(self.resetColorFilters)
+        self.syncColorFilterButtons()
+
+    def colorFilterButtons(self) -> dict[str | None, ColorButton]:
+        return self._color_filter_buttons.copy()
+
+    def isColorVisible(self, color_name: str | None) -> bool:
+        color_button = self._color_filter_buttons.get(color_name)
+        return color_button is None or color_button.isChecked()
+
+    def selectAllColorFilters(self) -> None:
+        signal_blockers = [
+            QtCore.QSignalBlocker(button)
+            for button in self._color_filter_buttons.values()
+        ]
+        for button in self._color_filter_buttons.values():
+            button.setChecked(True)
+        del signal_blockers
+        self.colorFiltersChanged.emit()
+
+    def resetColorFilters(self) -> None:
+        signal_blockers = [
+            QtCore.QSignalBlocker(button)
+            for button in self._color_filter_buttons.values()
+        ]
+        for button in self._color_filter_buttons.values():
+            button.setChecked(False)
+        del signal_blockers
+        self.colorFiltersChanged.emit()
+
+    def syncColorFilterButtons(self) -> None:
+        if self._color_filter_layout is None or self._color_filter_anchor is None:
+            return
+
+        used_color_names = []
+        for index in range(self.count()):
+            color_name = self.item(index).buttonColor()
+            if color_name and color_name not in used_color_names:
+                used_color_names.append(color_name)
+
+        for color_name in list(self._color_filter_buttons):
+            if color_name is not None and color_name not in used_color_names:
+                color_button = self._color_filter_buttons.pop(color_name)
+                self._color_filter_layout.removeWidget(color_button)
+                color_button.deleteLater()
+
+        if None not in self._color_filter_buttons:
+            color_button = ColorButton(
+                None,
+                None,
+                show_text=self._color_filter_show_text,
+                text="None",
+                parent=self._color_filter_anchor.parentWidget(),
+            )
+            color_button.toggled.connect(self.colorFiltersChanged)
+            self._color_filter_buttons[None] = color_button
+
+        sorted_color_names = sorted(
+            used_color_names,
+            key=lambda color_name: natural_sort_key(COLOR_NAMES[color_name]),
+        )
+        for color_name in sorted_color_names:
+            if color_name not in self._color_filter_buttons:
+                color_button = ColorButton(
+                    color_name,
+                    COLOR_VALUES[color_name],
+                    show_text=self._color_filter_show_text,
+                    text=COLOR_NAMES[color_name],
+                    parent=self._color_filter_anchor.parentWidget(),
+                )
+                color_button.toggled.connect(self.colorFiltersChanged)
+                self._color_filter_buttons[color_name] = color_button
+
+        for color_name in [None, *sorted_color_names]:
+            color_button = self._color_filter_buttons[color_name]
+            self._color_filter_layout.removeWidget(color_button)
+            anchor_index = self._color_filter_layout.indexOf(
+                self._color_filter_anchor
+            )
+            self._color_filter_layout.insertWidget(anchor_index, color_button)
+
+        for action_button in (
+            self._select_all_color_filters_button,
+            self._reset_color_filters_button,
+        ):
+            self._color_filter_layout.removeWidget(action_button)
+            anchor_index = self._color_filter_layout.indexOf(
+                self._color_filter_anchor
+            )
+            self._color_filter_layout.insertWidget(anchor_index, action_button)
+
+        self.colorFiltersChanged.emit()
 
     def setItemWidget(
         self,
@@ -34,6 +247,16 @@ class ColorableListWidget(QtWidgets.QListWidget):
     ) -> None:
         super().setItemWidget(item, widget)
         widget.setButtonColor(item.buttonColor())
+        self.syncColorFilterButtons()
+
+    def takeItem(self, row: int) -> QtWidgets.QListWidgetItem:
+        item = super().takeItem(row)
+        self.syncColorFilterButtons()
+        return item
+
+    def clear(self) -> None:
+        super().clear()
+        self.syncColorFilterButtons()
 
 
 class InputEmbeddingsList(ColorableListWidget):
@@ -50,6 +273,7 @@ class ColorableListWidgetItem(QtWidgets.QListWidgetItem):
         if list_widget := self.listWidget():
             button = list_widget.itemWidget(self)
             button.setButtonColor(color_name)
+            list_widget.syncColorFilterButtons()
 
 
 class ColorLabelDialog(QtWidgets.QDialog):
@@ -59,29 +283,11 @@ class ColorLabelDialog(QtWidgets.QDialog):
         self.setWindowIcon(QtGui.QIcon(":/media/media/visomaster_small.png"))
 
         self.color_combobox = QtWidgets.QComboBox(self)
-        for label, color_name in [
-            ("None", None),
-            ("red", "red"),
-            ("orange", "orange"),
-            ("amber", "amber"),
-            ("yellow", "yellow"),
-            ("lime", "lime"),
-            ("green", "green"),
-            ("teal", "teal"),
-            ("cyan", "cyan"),
-            ("blue", "blue"),
-            ("indigo", "indigo"),
-            ("purple", "purple"),
-            ("pink", "pink"),
-            ("brown", "brown"),
-            ("brunette", "brunette"),
-            ("blonde", "blonde"),
-            ("dark blonde", "dark_blonde"),
-            ("black hair", "black_hair"),
-            ("silver", "silver"),
-            ("platinum", "platinum"),
-            ("grey", "grey"),
-        ]:
+        self.color_combobox.addItem("None", None)
+        for label, color_name, _ in sorted(
+            COLOR_LABELS,
+            key=lambda color_label: natural_sort_key(color_label[0]),
+        ):
             self.color_combobox.addItem(label, color_name)
 
         button_box = QtWidgets.QDialogButtonBox(

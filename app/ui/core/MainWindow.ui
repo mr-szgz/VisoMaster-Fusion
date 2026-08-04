@@ -845,7 +845,7 @@
                <string>Open Embedding Editor</string>
               </property>
               <property name="text">
-               <string>Embedding Editor</string>
+               <string>Edit</string>
               </property>
               <property name="checkable">
                 <bool>false</bool>

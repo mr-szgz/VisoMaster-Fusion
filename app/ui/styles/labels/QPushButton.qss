@@ -13,14 +13,17 @@ QPushButton[buttonColor="blue"]:checked { background-color: #226998; border-colo
 QPushButton[buttonColor="brown"] { background-color: #8B5A2B; }
 QPushButton[buttonColor="brown"]:checked { background-color: #724A23; border-color: #A88360; }
 
-QPushButton[buttonColor="brunette"] { background-color: #4A2C20; }
-QPushButton[buttonColor="brunette"]:checked { background-color: #3D241A; border-color: #776158; }
+QPushButton[buttonColor="brunette"] { background-color: #332824; }
+QPushButton[buttonColor="brunette"]:checked { background-color: #4A2C20; border-color: #776158; }
 
 QPushButton[buttonColor="cyan"] { background-color: #0097A7; }
 QPushButton[buttonColor="cyan"]:checked { background-color: #007C89; border-color: #40B1BD; }
 
-QPushButton[buttonColor="dark_blonde"] { background-color: #A67B5B; }
-QPushButton[buttonColor="dark_blonde"]:checked { background-color: #88654B; border-color: #BC9C84; }
+QPushButton[buttonColor="dark_blonde"] { background-color: #AD7A54; }
+QPushButton[buttonColor="dark_blonde"]:checked { background-color: #8E6445; border-color: #BC9C84; }
+
+QPushButton[buttonColor="dark_oak"] { background-color: #241B17; }
+QPushButton[buttonColor="dark_oak"]:checked { background-color: #3B2922; border-color: #6B554B; }
 
 QPushButton[buttonColor="green"] { background-color: #27AE60; }
 QPushButton[buttonColor="green"]:checked { background-color: #208F4F; border-color: #5DC288; }
@@ -34,14 +37,17 @@ QPushButton[buttonColor="indigo"]:checked { background-color: #414BAF; border-co
 QPushButton[buttonColor="lime"] { background-color: #7CB342; }
 QPushButton[buttonColor="lime"]:checked { background-color: #669336; border-color: #9DC671; }
 
-QPushButton[buttonColor="orange"] { background-color: #E67E22; }
-QPushButton[buttonColor="orange"]:checked { background-color: #BD671C; border-color: #EC9E59; }
+QPushButton[buttonColor="orange"] { background-color: #A75813; }
+QPushButton[buttonColor="orange"]:checked { background-color: #E67E22; border-color: #EC9E59; }
+
+QPushButton[buttonColor="oxblood"] { background-color: #2C0B0E; }
+QPushButton[buttonColor="oxblood"]:checked { background-color: #5A1018; border-color: #8A3A43; }
 
 QPushButton[buttonColor="pink"] { background-color: #D81B60; }
 QPushButton[buttonColor="pink"]:checked { background-color: #B1164F; border-color: #E25488; }
 
-QPushButton[buttonColor="platinum"] { background-color: #E5E4E2; }
-QPushButton[buttonColor="platinum"]:checked { background-color: #BCBBB9; border-color: #ECEBE9; }
+QPushButton[buttonColor="platinum_blonde"] { background-color: #C6B58F; }
+QPushButton[buttonColor="platinum_blonde"]:checked { background-color: #E5D6B3; border-color: #ECEBE9; }
 
 QPushButton[buttonColor="purple"] { background-color: #8E44AD; }
 QPushButton[buttonColor="purple"]:checked { background-color: #74388E; border-color: #AA73C2; }

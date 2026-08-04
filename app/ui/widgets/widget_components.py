@@ -1777,9 +1777,12 @@ class EmbeddingCardButton(CardButton):
         self.popMenu.addSeparator()
 
         self.set_color_action = QtGui.QAction("Set Color Label", self)
-        self.set_color_action.triggered.connect(self.set_color_label_dialog)
+        self.set_color_action.triggered.connect(self.color_label_dialog)
         self.popMenu.addAction(self.set_color_action)
         self.popMenu.addSeparator()
+        self.clear_kv_action = QtGui.QAction("Clear K/V Cache", self)
+        self.clear_kv_action.triggered.connect(self.clear_kv_cache)
+        self.popMenu.addAction(self.clear_kv_action)
 
         self.clear_all_embeddings_action = QtGui.QAction("Clear All Embeddings", self)
         self.clear_all_embeddings_action.triggered.connect(
@@ -1801,6 +1804,7 @@ class EmbeddingCardButton(CardButton):
             self._release_context_menu(
                 "remove_action",
                 "set_color_action",
+                "clear_kv_action",
                 "clear_all_embeddings_action",
             )
 
@@ -1823,15 +1827,18 @@ class EmbeddingCardButton(CardButton):
         common_widget_actions.refresh_frame(self.main_window)
         self.deleteLater()
 
-    def set_color_label_dialog(self) -> None:
-        if video_control_actions.block_if_issue_scan_active(
-            self.main_window, "set embeddings color"
-        ):
-            return
-
+    def color_label_dialog(self) -> None:
         dialog = colorable_widgets.ColorLabelDialog(self.main_window)
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             self.list_item.setButtonColor(dialog.selectedColor())
+
+    def clear_kv_cache(self) -> None:
+        main_window = self.main_window
+        for i in range(main_window.inputEmbeddingsList.count() - 1, -1, -1):
+            list_item = main_window.inputEmbeddingsList.item(i)
+            if item := list_item.listWidget().itemWidget(list_item):
+                if item == self:
+                    pass # TODO: delete the kv cache object from embeddings list
 
 class CreateEmbeddingDialog(QtWidgets.QDialog):
     def __init__(self, main_window: "MainWindow", selected_faces: list | None = None):

@@ -375,6 +375,8 @@ def save_embeddings_to_file(main_window: "MainWindow", save_as=False):
 
         main_window.loaded_embedding_filename = embedding_filename
 
+def clear_kv_map_path(main_window: "MainWindow"):
+    pass
 
 # This method is used to convert the data type of Parameters Dict
 # Parameters are converted to dict when serializing to JSON
