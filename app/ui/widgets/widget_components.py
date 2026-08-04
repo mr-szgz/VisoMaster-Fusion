@@ -1833,12 +1833,7 @@ class EmbeddingCardButton(CardButton):
             self.list_item.setButtonColor(dialog.selectedColor())
 
     def clear_kv_cache(self) -> None:
-        main_window = self.main_window
-        for i in range(main_window.inputEmbeddingsList.count() - 1, -1, -1):
-            list_item = main_window.inputEmbeddingsList.item(i)
-            if item := list_item.listWidget().itemWidget(list_item):
-                if item == self:
-                    pass # TODO: delete the kv cache object from embeddings list
+        save_load_actions.clear_kv_map_path(self.main_window)
 
 class CreateEmbeddingDialog(QtWidgets.QDialog):
     def __init__(self, main_window: "MainWindow", selected_faces: list | None = None):
