@@ -356,6 +356,7 @@ def _make_embedding_main_window(tmp_path: Path):
     mw.merged_embeddings = {}
     mw.loaded_embedding_filename = ""
     mw.project_root_path = tmp_path
+    mw.control = {"DenoiserUseExistingCacheToggle": True}
     return mw
 
 
@@ -506,6 +507,73 @@ def test_save_embeddings_to_file_confirmed_confirmation_writes_file(
     assert main_window.loaded_embedding_filename == str(target_file)
     save_load_actions.common_widget_actions.create_and_show_toast_message.assert_called_once()
     save_load_actions.common_widget_actions.create_and_show_messagebox.assert_not_called()
+
+
+def test_save_embeddings_to_file_reuses_existing_kv_file(tmp_path, monkeypatch):
+    target_file = tmp_path / "embeddings.json"
+    target_file.write_text("original")
+    kv_map_file = (
+        tmp_path
+        / "model_assets"
+        / "reference_kv_data"
+        / "embedding_standalone_embed_1.pt"
+    )
+    kv_map_file.parent.mkdir(parents=True)
+    kv_map_file.write_bytes(b"existing")
+    main_window = _make_embedding_main_window(tmp_path)
+    main_window.loaded_embedding_filename = str(target_file)
+    main_window.merged_embeddings = {
+        "embed_1": _make_embedding_button(kv_map={"cache": "value"})
+    }
+
+    monkeypatch.setattr(
+        save_load_actions.QtWidgets,
+        "QMessageBox",
+        SimpleNamespace(Yes=1, No=0, question=MagicMock(return_value=1)),
+    )
+    torch_save = MagicMock()
+    monkeypatch.setattr(save_load_actions.torch, "save", torch_save)
+
+    save_load_actions.save_embeddings_to_file(main_window)
+
+    torch_save.assert_not_called()
+    assert json.loads(target_file.read_text())[0]["kv_map"] == str(kv_map_file)
+    assert kv_map_file.read_bytes() == b"existing"
+
+
+def test_save_embeddings_to_file_overwrites_cache_when_reuse_disabled(
+    tmp_path, monkeypatch
+):
+    target_file = tmp_path / "embeddings.json"
+    target_file.write_text("original")
+    kv_map_file = (
+        tmp_path
+        / "model_assets"
+        / "reference_kv_data"
+        / "embedding_standalone_embed_1.pt"
+    )
+    kv_map_file.parent.mkdir(parents=True)
+    kv_map_file.write_bytes(b"existing")
+    main_window = _make_embedding_main_window(tmp_path)
+    main_window.control["DenoiserUseExistingCacheToggle"] = False
+    main_window.loaded_embedding_filename = str(target_file)
+    main_window.merged_embeddings = {
+        "embed_1": _make_embedding_button(kv_map={"cache": "value"})
+    }
+
+    monkeypatch.setattr(
+        save_load_actions.QtWidgets,
+        "QMessageBox",
+        SimpleNamespace(Yes=1, No=0, question=MagicMock(return_value=1)),
+    )
+    torch_save = MagicMock()
+    monkeypatch.setattr(save_load_actions.torch, "save", torch_save)
+
+    save_load_actions.save_embeddings_to_file(main_window)
+
+    torch_save.assert_called_once_with(
+        {"kv_map": {"cache": "value"}}, str(kv_map_file)
+    )
 
 
 def test_save_embeddings_to_file_save_as_skips_confirmation(tmp_path, monkeypatch):

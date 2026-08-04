@@ -396,7 +396,17 @@ def _load_job_embeddings(main_window: "MainWindow", data: dict):
         if embedding_id in main_window.merged_embeddings:
             embed_button = main_window.merged_embeddings[embedding_id]
             kv_map_path = embedding_data.get("kv_map")
-            if kv_map_path and os.path.exists(kv_map_path):
+            if (
+                kv_map_path
+                and os.path.exists(kv_map_path)
+                and (
+                    not main_window.control["DenoiserUseExistingCacheToggle"]
+                    or (
+                        getattr(embed_button, "kv_map_list", None) is None
+                        and getattr(embed_button, "kv_map", None) is None
+                    )
+                )
+            ):
                 try:
                     import torch
 
@@ -1172,12 +1182,16 @@ def _serialize_job_data(main_window: "MainWindow") -> dict:
             )
             kv_data_dir.mkdir(parents=True, exist_ok=True)
             kv_map_file = kv_data_dir / f"embedding_{embedding_id}.pt"
+            kv_map_path = str(kv_map_file)
             try:
                 import torch
 
-                payload = {"kv_map": embed_button.kv_map}
-                torch.save(payload, str(kv_map_file))
-                kv_map_path = str(kv_map_file)
+                if (
+                    not main_window.control["DenoiserUseExistingCacheToggle"]
+                    or not kv_map_file.exists()
+                ):
+                    payload = {"kv_map": embed_button.kv_map}
+                    torch.save(payload, str(kv_map_file))
             except Exception as e:
                 print(
                     f"[ERROR] Error saving K/V map for job embedding {embedding_id}: {e}"

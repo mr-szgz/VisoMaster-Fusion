@@ -253,7 +253,19 @@ def open_embeddings_from_file(main_window: "MainWindow"):
                     if embedding_id in main_window.merged_embeddings:
                         embed_button = main_window.merged_embeddings[embedding_id]
                         kv_map_path = embed_data.get("kv_map")
-                        if kv_map_path and os.path.exists(kv_map_path):
+                        if (
+                            kv_map_path
+                            and os.path.exists(kv_map_path)
+                            and (
+                                not main_window.control[
+                                    "DenoiserUseExistingCacheToggle"
+                                ]
+                                or (
+                                    getattr(embed_button, "kv_map_list", None) is None
+                                    and getattr(embed_button, "kv_map", None) is None
+                                )
+                            )
+                        ):
                             try:
                                 payload = torch.load(kv_map_path, map_location="cpu")
                                 if isinstance(payload, dict):
@@ -335,17 +347,19 @@ def save_embeddings_to_file(main_window: "MainWindow", save_as=False):
             )
             kv_data_dir.mkdir(parents=True, exist_ok=True)
             kv_map_file = kv_data_dir / f"embedding_standalone_{embedding_id}.pt"
-            try:
+            kv_map_path = str(kv_map_file)
+            if (
+                not main_window.control["DenoiserUseExistingCacheToggle"]
+                or not kv_map_file.exists()
+            ):
                 # Save whatever payload we found (either a List[Dict] or a Dict)
                 payload = (
                     {"kv_map_list": kv_payload_to_save}
                     if getattr(embed_button, "kv_map_list", None)
                     else {"kv_map": kv_payload_to_save}
                 )
+
                 torch.save(payload, str(kv_map_file))
-                kv_map_path = str(kv_map_file)
-            except Exception as e:
-                print(f"[ERROR] Error saving K/V map for embedding {embedding_id}: {e}")
 
         embeddings_list.append(
             {
@@ -616,7 +630,20 @@ def load_saved_workspace(
                 if face_id in main_window.input_faces:
                     input_face_button = main_window.input_faces[face_id]
                     kv_map_path = input_face_data.get("kv_map")
-                    if kv_map_path and os.path.exists(kv_map_path):
+                    if (
+                        kv_map_path
+                        and os.path.exists(kv_map_path)
+                        and (
+                            not main_window.control[
+                                "DenoiserUseExistingCacheToggle"
+                            ]
+                            or (
+                                getattr(input_face_button, "kv_map_list", None)
+                                is None
+                                and getattr(input_face_button, "kv_map", None) is None
+                            )
+                        )
+                    ):
                         try:
                             payload = torch.load(kv_map_path, map_location="cpu")
                             if isinstance(payload, dict):
@@ -658,7 +685,19 @@ def load_saved_workspace(
                 if embedding_id in main_window.merged_embeddings:
                     embed_button = main_window.merged_embeddings[embedding_id]
                     kv_map_path = embedding_data.get("kv_map")
-                    if kv_map_path and os.path.exists(kv_map_path):
+                    if (
+                        kv_map_path
+                        and os.path.exists(kv_map_path)
+                        and (
+                            not main_window.control[
+                                "DenoiserUseExistingCacheToggle"
+                            ]
+                            or (
+                                getattr(embed_button, "kv_map_list", None) is None
+                                and getattr(embed_button, "kv_map", None) is None
+                            )
+                        )
+                    ):
                         try:
                             # R-03: Safe standard weight loading, mapped to CPU initially to prevent VRAM fragmentation
                             payload = torch.load(kv_map_path, map_location="cpu")
@@ -1167,10 +1206,14 @@ def save_current_workspace(
             )
             kv_data_dir.mkdir(parents=True, exist_ok=True)
             kv_map_file = kv_data_dir / f"input_{input_face.face_id}.pt"
+            kv_map_path = str(kv_map_file)
             try:
-                payload = {"kv_map": input_face.kv_map}
-                torch.save(payload, str(kv_map_file))
-                kv_map_path = str(kv_map_file)
+                if (
+                    not main_window.control["DenoiserUseExistingCacheToggle"]
+                    or not kv_map_file.exists()
+                ):
+                    payload = {"kv_map": input_face.kv_map}
+                    torch.save(payload, str(kv_map_file))
             except Exception as e:
                 print(
                     f"[ERROR] Error saving K/V map for input face {input_face.face_id} to {kv_map_file}: {e}"
@@ -1217,15 +1260,19 @@ def save_current_workspace(
             )
             kv_data_dir.mkdir(parents=True, exist_ok=True)
             kv_map_file = kv_data_dir / f"embedding_{embedding_id}.pt"
+            kv_map_path = str(kv_map_file)
             try:
-                # Save whatever payload we found
-                payload = (
-                    {"kv_map_list": kv_payload_to_save}
-                    if getattr(embedding_button, "kv_map_list", None)
-                    else {"kv_map": kv_payload_to_save}
-                )
-                torch.save(payload, str(kv_map_file))
-                kv_map_path = str(kv_map_file)
+                if (
+                    not main_window.control["DenoiserUseExistingCacheToggle"]
+                    or not kv_map_file.exists()
+                ):
+                    # Save whatever payload we found
+                    payload = (
+                        {"kv_map_list": kv_payload_to_save}
+                        if getattr(embedding_button, "kv_map_list", None)
+                        else {"kv_map": kv_payload_to_save}
+                    )
+                    torch.save(payload, str(kv_map_file))
             except Exception as e:
                 print(
                     f"[ERROR] Error saving K/V map for embedding {embedding_id} to {kv_map_file}: {e}"
@@ -1399,10 +1446,14 @@ def save_current_job(main_window: "MainWindow"):
             )
             kv_data_dir.mkdir(parents=True, exist_ok=True)
             kv_map_file = kv_data_dir / f"input_{input_face.face_id}.pt"
+            kv_map_path = str(kv_map_file)
             try:
-                payload = {"kv_map": input_face.kv_map}
-                torch.save(payload, str(kv_map_file))
-                kv_map_path = str(kv_map_file)
+                if (
+                    not main_window.control["DenoiserUseExistingCacheToggle"]
+                    or not kv_map_file.exists()
+                ):
+                    payload = {"kv_map": input_face.kv_map}
+                    torch.save(payload, str(kv_map_file))
             except Exception as e:
                 print(
                     f"[ERROR] Error saving K/V map for input face {input_face.face_id} to {kv_map_file}: {e}"
@@ -1427,14 +1478,18 @@ def save_current_job(main_window: "MainWindow"):
             )
             kv_data_dir.mkdir(parents=True, exist_ok=True)
             kv_map_file = kv_data_dir / f"embedding_{eid}.pt"
+            kv_map_path = str(kv_map_file)
             try:
-                payload = (
-                    {"kv_map_list": kv_payload_to_save}
-                    if getattr(emb, "kv_map_list", None)
-                    else {"kv_map": kv_payload_to_save}
-                )
-                torch.save(payload, str(kv_map_file))
-                kv_map_path = str(kv_map_file)
+                if (
+                    not main_window.control["DenoiserUseExistingCacheToggle"]
+                    or not kv_map_file.exists()
+                ):
+                    payload = (
+                        {"kv_map_list": kv_payload_to_save}
+                        if getattr(emb, "kv_map_list", None)
+                        else {"kv_map": kv_payload_to_save}
+                    )
+                    torch.save(payload, str(kv_map_file))
             except Exception as e:
                 print(f"[ERROR] Error saving K/V map for embedding {eid}: {e}")
 

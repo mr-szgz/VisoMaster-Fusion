@@ -31,6 +31,14 @@ DENOISER_LAYOUT_DATA: Any = {
             "default": True,
             "help": "Enable color correction for the denoiser.",
         },
+        "DenoiserUseExistingCacheToggle": {
+            "level": 1,
+            "widget_type": "ToggleButton",
+            "label": "Use Existing Cache K/V Files",
+            "control_name": "DenoiserUseExistingCacheToggle",
+            "default": True,
+            "help": "Enable use of existing kv_map files and avoid resaving cache.",
+        },
         "DenoiserBaseSeedSlider": {
             "level": 1,
             "widget_type": "ParameterSlider",
