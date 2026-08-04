@@ -10,31 +10,30 @@ if TYPE_CHECKING:
 
 
 COLOR_LABELS = (
-    ("red", "red", "#E74C3C"),
-    ("orange", "orange", "#E67E22"),
-    ("oxblood", "oxblood", "#5A1018"),
-    ("amber", "amber", "#F39C12"),
-    ("yellow", "yellow", "#D4AC0D"),
-    ("lime", "lime", "#7CB342"),
-    ("green", "green", "#27AE60"),
-    ("teal", "teal", "#009688"),
-    ("cyan", "cyan", "#0097A7"),
-    ("blue", "blue", "#2980B9"),
-    ("indigo", "indigo", "#4F5BD5"),
-    ("purple", "purple", "#8E44AD"),
-    ("pink", "pink", "#D81B60"),
-    ("brown", "brown", "#8B5A2B"),
-    ("brunette", "brunette", "#4A2C20"),
-    ("blonde", "blonde", "#E5C07B"),
-    ("dark blonde", "dark_blonde", "#A67B5B"),
-    ("dark oak", "dark_oak", "#3B2922"),
-    ("black hair", "black_hair", "#36454F"),
-    ("silver", "silver", "#C0C0C0"),
-    ("platinum blonde", "platinum_blonde", "#E5D6B3"),
-    ("grey", "grey", "#808080"),
+    ("red", "red"),
+    ("orange", "orange"),
+    ("oxblood", "oxblood"),
+    ("amber", "amber"),
+    ("yellow", "yellow"),
+    ("lime", "lime"),
+    ("green", "green"),
+    ("teal", "teal"),
+    ("cyan", "cyan"),
+    ("blue", "blue"),
+    ("indigo", "indigo"),
+    ("purple", "purple"),
+    ("pink", "pink"),
+    ("brown", "brown"),
+    ("brunette", "brunette"),
+    ("blonde", "blonde"),
+    ("dark blonde", "dark_blonde"),
+    ("dark oak", "dark_oak"),
+    ("black hair", "black_hair"),
+    ("silver", "silver"),
+    ("platinum blonde", "platinum_blonde"),
+    ("grey", "grey"),
 )
-COLOR_VALUES = {color_name: color for _, color_name, color in COLOR_LABELS}
-COLOR_NAMES = {color_name: label for label, color_name, _ in COLOR_LABELS}
+COLOR_NAMES = {color_name: label for label, color_name in COLOR_LABELS}
 
 
 def natural_sort_key(text: str) -> list[str | int]:
@@ -60,13 +59,12 @@ class ColorableCard:
         return self.property("buttonColor")
 
 
-class ColorButton(QtWidgets.QPushButton):
-    """Checkable color control with a swatch and optional text label."""
+class ColorButton(ColorableCard, QtWidgets.QPushButton):
+    """Checkable color control styled by its buttonColor property."""
 
     def __init__(
         self,
         color_name: str | None,
-        color: QtGui.QColor | str | None,
         show_text: bool = True,
         text: str | None = None,
         parent: QtWidgets.QWidget | None = None,
@@ -74,27 +72,13 @@ class ColorButton(QtWidgets.QPushButton):
         super().__init__(parent)
         self._color_name = color_name
         self._display_text = text or color_name
-        self._color = QtGui.QColor(color) if color is not None else None
         self._show_text = show_text
+        self.setButtonColor(color_name)
         self.setCheckable(True)
         self.setChecked(True)
-        if self._color is not None:
-            self.setIcon(self._create_color_icon())
-            self.setIconSize(QtCore.QSize(12, 12))
         self.setTextVisible(show_text)
         self.setToolTip(self._display_text)
         self.setAccessibleName(f"Show {self._display_text} embeddings")
-
-    def _create_color_icon(self) -> QtGui.QIcon:
-        pixmap = QtGui.QPixmap(12, 12)
-        pixmap.fill(QtCore.Qt.GlobalColor.transparent)
-        painter = QtGui.QPainter(pixmap)
-        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        painter.setPen(QtCore.Qt.PenStyle.NoPen)
-        painter.setBrush(self._color)
-        painter.drawRoundedRect(QtCore.QRectF(0, 0, 12, 12), 2, 2)
-        painter.end()
-        return QtGui.QIcon(pixmap)
 
     def colorName(self) -> str | None:
         return self._color_name
@@ -196,7 +180,6 @@ class ColorableListWidget(QtWidgets.QListWidget):
         if None not in self._color_filter_buttons:
             color_button = ColorButton(
                 None,
-                None,
                 show_text=self._color_filter_show_text,
                 text="None",
                 parent=self._color_filter_anchor.parentWidget(),
@@ -212,7 +195,6 @@ class ColorableListWidget(QtWidgets.QListWidget):
             if color_name not in self._color_filter_buttons:
                 color_button = ColorButton(
                     color_name,
-                    COLOR_VALUES[color_name],
                     show_text=self._color_filter_show_text,
                     text=COLOR_NAMES[color_name],
                     parent=self._color_filter_anchor.parentWidget(),
@@ -284,7 +266,7 @@ class ColorLabelDialog(QtWidgets.QDialog):
 
         self.color_combobox = QtWidgets.QComboBox(self)
         self.color_combobox.addItem("None", None)
-        for label, color_name, _ in sorted(
+        for label, color_name in sorted(
             COLOR_LABELS,
             key=lambda color_label: natural_sort_key(color_label[0]),
         ):
