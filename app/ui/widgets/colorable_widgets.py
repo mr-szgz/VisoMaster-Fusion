@@ -100,6 +100,7 @@ class ColorableListWidget(QtWidgets.QListWidget):
         super().__init__(parent)
         self._color_filter_layout: QtWidgets.QBoxLayout | None = None
         self._color_filter_anchor: QtWidgets.QWidget | None = None
+        self._color_filter_search_box: QtWidgets.QLineEdit | None = None
         self._color_filter_show_text = True
         self._color_filter_buttons: dict[str | None, ColorButton] = {}
         self._select_all_color_filters_button: QtWidgets.QPushButton | None = None
@@ -109,10 +110,12 @@ class ColorableListWidget(QtWidgets.QListWidget):
         self,
         layout: QtWidgets.QBoxLayout,
         before_widget: QtWidgets.QWidget,
+        search_box: QtWidgets.QLineEdit,
         show_text: bool = True,
     ) -> None:
         self._color_filter_layout = layout
         self._color_filter_anchor = before_widget
+        self._color_filter_search_box = search_box
         self._color_filter_show_text = show_text
 
         button_parent = before_widget.parentWidget()
@@ -132,6 +135,9 @@ class ColorableListWidget(QtWidgets.QListWidget):
             "Deselect all embedding color filters"
         )
         self._reset_color_filters_button.clicked.connect(self.resetColorFilters)
+        QtWidgets.QApplication.instance().focusChanged.connect(
+            self.updateColorFilterControlsForFocus
+        )
         self.syncColorFilterButtons()
 
     def colorFilterButtons(self) -> dict[str | None, ColorButton]:
@@ -146,8 +152,10 @@ class ColorableListWidget(QtWidgets.QListWidget):
             QtCore.QSignalBlocker(button)
             for button in self._color_filter_buttons.values()
         ]
+        signal_blockers.append(QtCore.QSignalBlocker(self._color_filter_search_box))
         for button in self._color_filter_buttons.values():
             button.setChecked(True)
+        self._color_filter_search_box.clear()
         del signal_blockers
         self.colorFiltersChanged.emit()
 
@@ -160,6 +168,17 @@ class ColorableListWidget(QtWidgets.QListWidget):
             button.setChecked(False)
         del signal_blockers
         self.colorFiltersChanged.emit()
+
+    def updateColorFilterControlsForFocus(
+        self,
+        _previous_widget: QtWidgets.QWidget | None,
+        focused_widget: QtWidgets.QWidget | None,
+    ) -> None:
+        controls_visible = focused_widget is not self._color_filter_search_box
+        for button in self._color_filter_buttons.values():
+            button.setVisible(controls_visible)
+        self._select_all_color_filters_button.setVisible(controls_visible)
+        self._reset_color_filters_button.setVisible(controls_visible)
 
     def syncColorFilterButtons(self) -> None:
         if self._color_filter_layout is None or self._color_filter_anchor is None:
@@ -220,6 +239,10 @@ class ColorableListWidget(QtWidgets.QListWidget):
             )
             self._color_filter_layout.insertWidget(anchor_index, action_button)
 
+        self.updateColorFilterControlsForFocus(
+            None,
+            QtWidgets.QApplication.focusWidget(),
+        )
         self.colorFiltersChanged.emit()
 
     def setItemWidget(

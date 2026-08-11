@@ -242,6 +242,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.inputEmbeddingsList.setColorFilterLayout(
             self.horizontalLayout_3,
             self.openEditorButton,
+            self.inputEmbeddingsSearchBox,
         )
         self._configure_output_folder_controls()
         self._configure_file_menu_actions()

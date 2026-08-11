@@ -5,5 +5,3 @@
 - [`TargetFaceCardButton.calculate_assigned_input_embedding`](app/ui/widgets/widget_components.py#L875)
 - [`EmbeddingCardButton.kv_map`](app/ui/widgets/widget_components.py#L1674)
 - [`EmbeddingCardButton.kv_map_list`](app/ui/widgets/widget_components.py#L1685)
-- [`refresh_frame`](app/ui/widgets/actions/common_actions.py#L200)
-- [`VideoProcessor.process_current_frame`](app/processors/video_processor.py#L1947)
