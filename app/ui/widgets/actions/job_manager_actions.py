@@ -1321,6 +1321,7 @@ def save_job_workspace(
     job_name_path: str,
     use_job_name_for_output: bool = True,
     output_file_name: Optional[str] = None,
+    target_media: Optional[widget_components.TargetMediaCardButton] = None,
 ):
     """
     Main function to save the current workspace to a job file.
@@ -1331,6 +1332,11 @@ def save_job_workspace(
 
     # Get all workspace data
     workspace_data = _serialize_job_data(main_window)
+    if target_media is not None:
+        workspace_data["target_medias_data"] = [
+            {"media_id": target_media.media_id, "media_path": target_media.media_path}
+        ]
+        workspace_data["selected_media_id"] = target_media.media_id
 
     # Add job-specific output settings
     workspace_data["use_job_name_for_output"] = use_job_name_for_output
@@ -1447,6 +1453,20 @@ def setup_job_manager_ui(main_window: "MainWindow"):
     main_window.job_processor = None
     refresh_job_list(main_window)
     update_job_manager_buttons(main_window)
+
+
+def save_default_job(
+    main_window: "MainWindow", target_media: widget_components.TargetMediaCardButton
+):
+    """Save a new job using SaveJobDialog's filename and output-name defaults."""
+    jobs_dir = get_jobs_dir(main_window)
+    job_name = Path(target_media.media_path).stem.strip()
+    job_path = jobs_dir / job_name
+    suffix = 1
+    while Path(f"{job_path}.json").exists():
+        job_path = jobs_dir / f"{job_name}_{suffix}"
+        suffix += 1
+    save_job_workspace(main_window, str(job_path), target_media=target_media)
 
 
 def prompt_job_name(main_window: "MainWindow"):

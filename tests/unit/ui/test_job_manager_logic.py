@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import sys
 import copy
+import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from pathlib import Path
 
@@ -70,6 +72,59 @@ from app.helpers.miscellaneous import ParametersDict  # noqa: E402
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+def test_save_default_jobs_preserve_configuration_and_use_distinct_media(
+    monkeypatch, tmp_path
+):
+    from app.ui.widgets.actions import job_manager_actions
+
+    workspace = {
+        "target_medias_data": [{"media_id": "original", "media_path": "original.mp4"}],
+        "selected_media_id": "original",
+        "target_faces_data": {"face": {"assigned_input_faces": ["input"]}},
+        "control": {"OutputMediaFolder": "output"},
+        "markers": {"10": {"parameters": {"face": {"strength": 75}}}},
+    }
+    monkeypatch.setattr(
+        job_manager_actions, "_serialize_job_data", lambda mw: copy.deepcopy(workspace)
+    )
+    main_window = SimpleNamespace(project_root_path=tmp_path)
+    jobs_dir = job_manager_actions.get_jobs_dir(main_window)
+    existing_job = jobs_dir / "sample.json"
+    existing_job.write_text("existing job", encoding="utf-8")
+    media_items = [
+        SimpleNamespace(media_id="image", media_path="images/sample.png"),
+        SimpleNamespace(media_id="video", media_path="videos/sample.mp4"),
+    ]
+
+    for media in media_items:
+        job_manager_actions.save_default_job(main_window, media)
+
+    assert existing_job.read_text(encoding="utf-8") == "existing job"
+    for suffix, media in enumerate(media_items, 1):
+        data = json.loads((jobs_dir / f"sample_{suffix}.json").read_text())
+        assert data["target_medias_data"] == [
+            {"media_id": media.media_id, "media_path": media.media_path}
+        ]
+        assert data["selected_media_id"] == media.media_id
+        for key in ("target_faces_data", "control", "markers"):
+            assert data[key] == workspace[key]
+        assert data["use_job_name_for_output"] is True
+        assert data["output_file_name"] is None
+    assert workspace["selected_media_id"] == "original"
+
+
+def test_save_default_job_propagates_write_failure(monkeypatch, tmp_path):
+    from app.ui.widgets.actions import job_manager_actions
+
+    writer = MagicMock(side_effect=OSError("write failed"))
+    monkeypatch.setattr(job_manager_actions, "save_job_workspace", writer)
+    with pytest.raises(OSError, match="write failed"):
+        job_manager_actions.save_default_job(
+            SimpleNamespace(project_root_path=tmp_path),
+            SimpleNamespace(media_id="image", media_path="photo.png"),
+        )
 
 
 @pytest.fixture

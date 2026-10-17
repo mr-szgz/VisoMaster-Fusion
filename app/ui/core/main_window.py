@@ -4,7 +4,7 @@
 ##
 ## Created by: Qt User Interface Compiler version 6.11.0
 ##
-## WARNING
+## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
 from PySide6.QtCore import (QCoreApplication, QDate, QDateTime, QLocale,
     QMetaObject, QObject, QPoint, QRect,
@@ -27,7 +27,7 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(1548, 768)
+        MainWindow.resize(1608, 768)
         font = QFont()
         font.setPointSize(10)
         MainWindow.setFont(font)
@@ -136,11 +136,12 @@ class Ui_MainWindow(object):
         self.timelineScrollArea.setSizePolicy(sizePolicy1)
         self.timelineScrollArea.setMinimumSize(QSize(0, 40))
         self.timelineScrollArea.setMaximumSize(QSize(16777215, 40))
-        self.timelineScrollArea.setWidgetResizable(True)
         self.timelineScrollArea.setFrameShape(QFrame.Shape.NoFrame)
         self.timelineScrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.timelineScrollArea.setWidgetResizable(True)
         self.scrollAreaWidgetContents = QWidget()
         self.scrollAreaWidgetContents.setObjectName(u"scrollAreaWidgetContents")
+        self.scrollAreaWidgetContents.setGeometry(QRect(0, 0, 519, 40))
         self.verticalLayout_timeline = QVBoxLayout(self.scrollAreaWidgetContents)
         self.verticalLayout_timeline.setObjectName(u"verticalLayout_timeline")
         self.verticalLayout_timeline.setContentsMargins(0, 0, 0, 0)
@@ -380,6 +381,9 @@ class Ui_MainWindow(object):
         self.batchImageButton.setObjectName(u"batchImageButton")
         self.batchImageButton.setFlat(True)
         self.batchLayout_1.addWidget(self.batchImageButton)
+        self.batchSaveJobsButton = QPushButton(self.facesPanelGroupBox)
+        self.batchSaveJobsButton.setObjectName(u"batchSaveJobsButton")
+        self.batchLayout_1.addWidget(self.batchSaveJobsButton)
         self.batchallImageButton = QPushButton(self.facesPanelGroupBox)
         self.batchallImageButton.setObjectName(u"batchallImageButton")
         self.batchallImageButton.setFlat(True)
@@ -432,7 +436,7 @@ class Ui_MainWindow(object):
         sizePolicy9.setVerticalStretch(0)
         sizePolicy9.setHeightForWidth(self.input_Target_DockWidget.sizePolicy().hasHeightForWidth())
         self.input_Target_DockWidget.setSizePolicy(sizePolicy9)
-        self.input_Target_DockWidget.setMinimumSize(QSize(10, 10))
+        self.input_Target_DockWidget.setMinimumSize(QSize(389, 342))
         self.input_Target_DockWidget.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetFloatable|QDockWidget.DockWidgetFeature.DockWidgetMovable)
         self.dockWidgetContents = QWidget()
         self.dockWidgetContents.setObjectName(u"dockWidgetContents")
@@ -589,7 +593,7 @@ class Ui_MainWindow(object):
         self.input_Faces_DockWidget.setObjectName(u"input_Faces_DockWidget")
         sizePolicy9.setHeightForWidth(self.input_Faces_DockWidget.sizePolicy().hasHeightForWidth())
         self.input_Faces_DockWidget.setSizePolicy(sizePolicy9)
-        self.input_Faces_DockWidget.setMinimumSize(QSize(10, 10))
+        self.input_Faces_DockWidget.setMinimumSize(QSize(109, 172))
         self.input_Faces_DockWidget.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetFloatable|QDockWidget.DockWidgetFeature.DockWidgetMovable)
         self.dockWidgetContents_Faces = QWidget()
         self.dockWidgetContents_Faces.setObjectName(u"dockWidgetContents_Faces")
@@ -624,7 +628,7 @@ class Ui_MainWindow(object):
         MainWindow.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.input_Faces_DockWidget)
         self.jobManagerDockWidget = QDockWidget(MainWindow)
         self.jobManagerDockWidget.setObjectName(u"jobManagerDockWidget")
-        self.jobManagerDockWidget.setMinimumSize(QSize(10, 10))
+        self.jobManagerDockWidget.setMinimumSize(QSize(275, 207))
         self.jobManagerDockWidget.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetFloatable|QDockWidget.DockWidgetFeature.DockWidgetMovable)
         self.dockWidgetContents_JobManager = QWidget()
         self.dockWidgetContents_JobManager.setObjectName(u"dockWidgetContents_JobManager")
@@ -753,9 +757,9 @@ class Ui_MainWindow(object):
         self.presetsWidgetsLayout.setObjectName(u"presetsWidgetsLayout")
         self.presetsList = QListWidget(self.preset_tab)
         self.presetsList.setObjectName(u"presetsList")
-        self.presetsList.setSortingEnabled(True)
         self.presetsList.setMinimumSize(QSize(0, 360))
         self.presetsList.setMaximumSize(QSize(16777215, 460))
+        self.presetsList.setSortingEnabled(True)
         self.presetsWidgetsLayout.addWidget(self.presetsList)
         self.presetsButtonsLayout = QHBoxLayout()
         self.presetsButtonsLayout.setObjectName(u"presetsButtonsLayout")
@@ -790,7 +794,7 @@ class Ui_MainWindow(object):
         MainWindow.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.controlOptionsDockWidget)
         self.topMenuBar = QMenuBar(MainWindow)
         self.topMenuBar.setObjectName(u"topMenuBar")
-        self.topMenuBar.setGeometry(QRect(0, 0, 1376, 33))
+        self.topMenuBar.setGeometry(QRect(0, 0, 1608, 33))
         self.menuFile = QMenu(self.topMenuBar)
         self.menuFile.setObjectName(u"menuFile")
         self.menuEdit = QMenu(self.topMenuBar)
@@ -906,6 +910,8 @@ class Ui_MainWindow(object):
         self.batchImageButton.setToolTip(QCoreApplication.translate("MainWindow", u"Processes the currently selected face across the entire target video or image.", None))
 #endif // QT_CONFIG(tooltip)
         self.batchImageButton.setText(QCoreApplication.translate("MainWindow", u"Batch Process Selected Face\n"
+"(For Videos and Images)", None))
+        self.batchSaveJobsButton.setText(QCoreApplication.translate("MainWindow", u"Batch Save Jobs\n"
 "(For Videos and Images)", None))
 #if QT_CONFIG(tooltip)
         self.batchallImageButton.setToolTip(QCoreApplication.translate("MainWindow", u"Processes all found faces. This feature is only available for target images, not videos.", None))

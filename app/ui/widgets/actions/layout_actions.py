@@ -859,6 +859,7 @@ def set_all_parameters_and_control_widgets_enabled(
     # Bottom buttons
     main_window.saveImageButton.setDisabled(disabled)
     main_window.batchImageButton.setDisabled(disabled)
+    main_window.batchSaveJobsButton.setDisabled(disabled)
     main_window.batchallImageButton.setDisabled(disabled)
     main_window.findTargetFacesButton.setDisabled(disabled)
     main_window.clearTargetFacesButton.setDisabled(disabled)
@@ -897,6 +898,7 @@ def set_all_parameters_and_control_widgets_enabled(
 
     # Assign batch button if processing
     if main_window.is_batch_processing:
+        main_window.batchSaveJobsButton.setEnabled(False)
         main_window.batchImageButton.setEnabled(
             main_window.batch_processing_button is main_window.batchImageButton
         )

@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1548</width>
-    <height>768</height>
+    <width>1768</width>
+    <height>825</height>
    </rect>
   </property>
   <property name="font">
@@ -45,7 +45,7 @@
            </property>
           </widget>
          </item>
-		 <item>
+         <item>
           <widget class="QCheckBox" name="InputFacesCheckBox">
            <property name="text">
             <string>Input Faces</string>
@@ -55,7 +55,7 @@
            </property>
           </widget>
          </item>
-		 <item>
+         <item>
           <widget class="QCheckBox" name="JobsCheckBox">
            <property name="text">
             <string>Jobs</string>
@@ -141,21 +141,37 @@
                <height>40</height>
               </size>
              </property>
-             <property name="widgetResizable">
-              <bool>true</bool>
-             </property>
              <property name="frameShape">
               <enum>QFrame::Shape::NoFrame</enum>
              </property>
              <property name="verticalScrollBarPolicy">
               <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
              </property>
+             <property name="widgetResizable">
+              <bool>true</bool>
+             </property>
              <widget class="QWidget" name="scrollAreaWidgetContents">
+              <property name="geometry">
+               <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>677</width>
+                <height>40</height>
+               </rect>
+              </property>
               <layout class="QVBoxLayout" name="verticalLayout_timeline">
-               <property name="leftMargin"><number>0</number></property>
-               <property name="topMargin"><number>0</number></property>
-               <property name="rightMargin"><number>0</number></property>
-               <property name="bottomMargin"><number>0</number></property>
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
                <item>
                 <widget class="QSlider" name="videoSeekSlider">
                  <property name="orientation">
@@ -222,11 +238,11 @@
                <height>16777215</height>
               </size>
              </property>
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
              <property name="toolTip">
               <string>Zoom Timeline</string>
+             </property>
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
              </property>
             </widget>
            </item>
@@ -545,23 +561,23 @@
              </property>
             </widget>
            </item>
-		   <item>
-		    <widget class="QPushButton" name="theatreModeButton">
-		     <property name="toolTip">
-			  <string>FullScreen Theatre (T)</string>
-		     </property>
-		     <property name="text">
-			  <string/>
-		     </property>
-			 <property name="icon">
+           <item>
+            <widget class="QPushButton" name="theatreModeButton">
+             <property name="toolTip">
+              <string>FullScreen Theatre (T)</string>
+             </property>
+             <property name="text">
+              <string/>
+             </property>
+             <property name="icon">
               <iconset resource="media.qrc">
                <normaloff>:/media/media/theatre_hover.png</normaloff>:/media/media/theatre_hover.png</iconset>
              </property>
              <property name="flat">
               <bool>true</bool>
              </property>
-		    </widget>
-		   </item>
+            </widget>
+           </item>
            <item>
             <spacer name="horizontalSpacer_5">
              <property name="orientation">
@@ -605,14 +621,14 @@
          </property>
          <property name="minimumSize">
           <size>
-            <width>0</width>
-            <height>220</height>
+           <width>0</width>
+           <height>220</height>
           </size>
          </property>
          <property name="maximumSize">
           <size>
-            <width>16777215</width>
-            <height>16777215</height>
+           <width>16777215</width>
+           <height>16777215</height>
           </size>
          </property>
          <property name="autoFillBackground">
@@ -652,29 +668,29 @@
              <item>
               <widget class="QWidget" name="verticalWidget" native="true">
                <layout class="QVBoxLayout" name="controlButtonsLayout">
-                 <property name="spacing">
-                  <number>8</number>
-                 </property>
-                 <property name="leftMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="topMargin">
-                  <number>4</number>
-                 </property>
-                 <property name="rightMargin">
-                  <number>0</number>
-                 </property>
-                 <property name="bottomMargin">
-                  <number>4</number>
-                 </property>
-                 <item>
-                  <widget class="QPushButton" name="findTargetFacesButton">
-                   <property name="minimumSize">
-                    <size>
-                     <width>100</width>
-                     <height>0</height>
-                    </size>
-                   </property>
+                <property name="spacing">
+                 <number>8</number>
+                </property>
+                <property name="leftMargin">
+                 <number>0</number>
+                </property>
+                <property name="topMargin">
+                 <number>4</number>
+                </property>
+                <property name="rightMargin">
+                 <number>0</number>
+                </property>
+                <property name="bottomMargin">
+                 <number>4</number>
+                </property>
+                <item>
+                 <widget class="QPushButton" name="findTargetFacesButton">
+                  <property name="minimumSize">
+                   <size>
+                    <width>100</width>
+                    <height>0</height>
+                   </size>
+                  </property>
                   <property name="text">
                    <string>Find Faces</string>
                   </property>
@@ -687,10 +703,10 @@
                  </widget>
                 </item>
                 <item>
-                  <widget class="QPushButton" name="clearTargetFacesButton">
-                   <property name="text">
-                    <string>Clear Faces</string>
-                   </property>
+                 <widget class="QPushButton" name="clearTargetFacesButton">
+                  <property name="text">
+                   <string>Clear Faces</string>
+                  </property>
                   <property name="checkable">
                    <bool>false</bool>
                   </property>
@@ -700,10 +716,10 @@
                  </widget>
                 </item>
                 <item>
-                  <widget class="QPushButton" name="swapfacesButton">
-                   <property name="text">
-                    <string>Swap Faces</string>
-                   </property>
+                 <widget class="QPushButton" name="swapfacesButton">
+                  <property name="text">
+                   <string>Swap Faces</string>
+                  </property>
                   <property name="checkable">
                    <bool>true</bool>
                   </property>
@@ -713,10 +729,10 @@
                  </widget>
                 </item>
                 <item>
-                  <widget class="QPushButton" name="editFacesButton">
-                   <property name="text">
-                    <string>Edit Faces</string>
-                   </property>
+                 <widget class="QPushButton" name="editFacesButton">
+                  <property name="text">
+                   <string>Edit Faces</string>
+                  </property>
                   <property name="checkable">
                    <bool>true</bool>
                   </property>
@@ -727,10 +743,10 @@
                    <bool>true</bool>
                   </property>
                  </widget>
-                 </item>
-                </layout>
-               </widget>
-              </item>
+                </item>
+               </layout>
+              </widget>
+             </item>
             </layout>
            </widget>
           </item>
@@ -800,7 +816,7 @@
             </item>
            </layout>
           </item>
-		  <item row="0" column="1">
+          <item row="0" column="1">
            <layout class="QHBoxLayout" name="batchLayout_1">
             <item>
              <widget class="QPushButton" name="batchImageButton">
@@ -808,20 +824,30 @@
                <string>Processes the currently selected face across the entire target video or image.</string>
               </property>
               <property name="text">
-               <string>Batch Process Selected Face&#xA;(For Videos and Images)</string>
+               <string>Batch Process Selected Face
+(For Videos and Images)</string>
               </property>
               <property name="flat">
                <bool>true</bool>
               </property>
              </widget>
             </item>
-			<item>
+            <item>
+             <widget class="QPushButton" name="batchSaveJobsButton">
+              <property name="text">
+               <string>Batch Save Jobs
+(For Videos and Images)</string>
+              </property>
+             </widget>
+            </item>
+            <item>
              <widget class="QPushButton" name="batchallImageButton">
               <property name="toolTip">
                <string>Processes all found faces. This feature is only available for target images, not videos.</string>
               </property>
               <property name="text">
-               <string>Batch Process All Faces&#xA;(For Images only)</string>
+               <string>Batch Process All Faces
+(For Images only)</string>
               </property>
               <property name="flat">
                <bool>true</bool>
@@ -839,7 +865,7 @@
               </property>
              </widget>
             </item>
-			<item>
+            <item>
              <widget class="QPushButton" name="openEditorButton">
               <property name="toolTip">
                <string>Open Embedding Editor</string>
@@ -848,7 +874,7 @@
                <string>Embedding Editor</string>
               </property>
               <property name="checkable">
-                <bool>false</bool>
+               <bool>false</bool>
               </property>
               <property name="flat">
                <bool>true</bool>
@@ -935,8 +961,8 @@
    </property>
    <property name="minimumSize">
     <size>
-     <width>50</width>
-     <height>50</height>
+     <width>389</width>
+     <height>342</height>
     </size>
    </property>
    <property name="features">
@@ -1309,8 +1335,8 @@
    </property>
    <property name="minimumSize">
     <size>
-     <width>50</width>
-     <height>50</height>
+     <width>109</width>
+     <height>172</height>
     </size>
    </property>
    <property name="features">
@@ -1393,15 +1419,15 @@
   <widget class="QDockWidget" name="jobManagerDockWidget">
    <property name="minimumSize">
     <size>
-     <width>50</width>
-     <height>50</height>
+     <width>382</width>
+     <height>248</height>
     </size>
-   </property>
-   <property name="windowTitle">
-    <string>Job Manager</string>
    </property>
    <property name="features">
     <set>QDockWidget::DockWidgetFeature::DockWidgetFloatable|QDockWidget::DockWidgetFeature::DockWidgetMovable</set>
+   </property>
+   <property name="windowTitle">
+    <string>Job Manager</string>
    </property>
    <attribute name="dockWidgetArea">
     <number>1</number>
@@ -1472,9 +1498,9 @@
    <property name="features">
     <set>QDockWidget::DockWidgetFeature::DockWidgetFloatable|QDockWidget::DockWidgetFeature::DockWidgetMovable</set>
    </property>
-    <property name="windowTitle">
-     <string>Parameters</string>
-    </property>
+   <property name="windowTitle">
+    <string>Parameters</string>
+   </property>
    <attribute name="dockWidgetArea">
     <number>2</number>
    </attribute>
@@ -1543,7 +1569,7 @@
          </item>
         </layout>
        </widget>
-	   <widget class="QWidget" name="denoiser_tab">
+       <widget class="QWidget" name="denoiser_tab">
         <attribute name="title">
          <string>Denoiser</string>
         </attribute>
@@ -1586,7 +1612,7 @@
                </property>
               </widget>
              </item>
-			 <item>
+             <item>
               <widget class="QPushButton" name="outputOpenButton">
                <property name="text">
                 <string>Open Folder</string>
@@ -1602,7 +1628,7 @@
          </item>
         </layout>
        </widget>
-	   <widget class="QWidget" name="preset_tab">
+       <widget class="QWidget" name="preset_tab">
         <attribute name="title">
          <string>Presets</string>
         </attribute>
@@ -1614,25 +1640,25 @@
            </property>
           </widget>
          </item>
-		 <item>
+         <item>
           <layout class="QVBoxLayout" name="presetsWidgetsLayout">
-		   <item>
+           <item>
             <widget class="QListWidget" name="presetsList">
-			 <property name="sortingEnabled">
-			  <bool>true</bool>
-			 </property>
-			 <property name="minimumSize">
-			  <size>
-			   <width>0</width>
-			   <height>360</height>
-			  </size>
-			 </property>
-			 <property name="maximumSize">
-              <size>
-               <width>16777215</width>
-               <height>460</height>
-              </size>
-             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>360</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>460</height>
+              </size>
+             </property>
+             <property name="sortingEnabled">
+              <bool>true</bool>
+             </property>
             </widget>
            </item>
            <item>
@@ -1653,25 +1679,31 @@
              </item>
              <item>
               <widget class="QPushButton" name="controlPresetButton">
-                <property name="text">
-                 <string>Apply Settings</string>
-                </property>
-			   <property name="checkable">
-                 <bool>true</bool>
-                </property>
+               <property name="text">
+                <string>Apply Settings</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
               </widget>
              </item>
             </layout>
            </item>
-		  </layout>
+          </layout>
          </item>
-		 <item>
+         <item>
           <spacer name="verticalSpacerpresets">
            <property name="orientation">
-            <enum>Qt::Vertical</enum>
+            <enum>Qt::Orientation::Vertical</enum>
            </property>
            <property name="sizeType">
-            <enum>QSizePolicy::Expanding</enum>
+            <enum>QSizePolicy::Policy::Expanding</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
            </property>
           </spacer>
          </item>
@@ -1708,7 +1740,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1376</width>
+     <width>1768</width>
      <height>33</height>
     </rect>
    </property>
@@ -1746,7 +1778,7 @@
      <string>Help</string>
     </property>
     <addaction name="actionView_Help_Shortcuts"/>
-	<addaction name="actionView_Help_Presets"/>
+    <addaction name="actionView_Help_Presets"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>

@@ -2670,6 +2670,24 @@ def save_current_frame_to_file(main_window: "MainWindow"):
         )
 
 
+def batch_save_jobs(main_window: "MainWindow"):
+    """Save the current face configuration as a job for each target image/video."""
+    from app.ui.widgets.actions import job_manager_actions
+
+    saved_count = 0
+    for i in range(main_window.targetVideosList.count()):
+        item = main_window.targetVideosList.item(i)
+        target_media = main_window.targetVideosList.itemWidget(item)
+        if target_media.file_type in ("image", "video"):
+            job_manager_actions.save_default_job(main_window, target_media)
+            saved_count += 1
+
+    job_manager_actions.refresh_job_list(main_window)
+    common_widget_actions.create_and_show_toast_message(
+        main_window, "Jobs Saved", f"Saved {saved_count} jobs."
+    )
+
+
 def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     """
     Processes a batch of images and/or videos from the target list.
@@ -2810,6 +2828,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     )
     original_button_text = batch_button.text()
     original_batch_enabled = main_window.batchImageButton.isEnabled()
+    original_batch_save_enabled = main_window.batchSaveJobsButton.isEnabled()
     original_batchall_enabled = main_window.batchallImageButton.isEnabled()
     progress_dialog = widget_components.ProgressDialog(
         "Starting batch processing...",
@@ -2830,6 +2849,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     main_window.batch_processing_button = batch_button
     main_window.is_batch_processing = True
     main_window.batchImageButton.setEnabled(not process_all_faces)
+    main_window.batchSaveJobsButton.setEnabled(False)
     main_window.batchallImageButton.setEnabled(process_all_faces)
     progress_dialog.setValue(0)
     progress_dialog.show()
@@ -3054,6 +3074,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
         main_window.batch_processing_button = None
         batch_button.setText(original_button_text)
         main_window.batchImageButton.setEnabled(original_batch_enabled)
+        main_window.batchSaveJobsButton.setEnabled(original_batch_save_enabled)
         main_window.batchallImageButton.setEnabled(original_batchall_enabled)
         # 8. Close the progress dialog
         progress_dialog.close_without_confirmation()

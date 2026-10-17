@@ -1325,11 +1325,36 @@ def _make_batch_main_window(*widgets):
             text=MagicMock(return_value="Batch Selected"),
             isEnabled=MagicMock(return_value=True),
         ),
+        batchSaveJobsButton=MagicMock(isEnabled=MagicMock(return_value=True)),
         batchallImageButton=MagicMock(
             text=MagicMock(return_value="Batch All"),
             isEnabled=MagicMock(return_value=True),
         ),
     )
+
+
+def test_batch_save_jobs_includes_images_and_videos_without_processing(
+    monkeypatch, video_actions_env
+):
+    from app.ui.widgets import actions
+
+    job_actions = MagicMock()
+    monkeypatch.setattr(actions, "job_manager_actions", job_actions, raising=False)
+    image = SimpleNamespace(file_type="image", media_path="photo.png")
+    video = SimpleNamespace(file_type="video", media_path="clip.mp4")
+    webcam = SimpleNamespace(file_type="webcam", media_path="0")
+    main_window = _make_batch_main_window(image, webcam, video)
+    original_state = vars(main_window.video_processor).copy()
+
+    video_actions_env.module.batch_save_jobs(main_window)
+
+    assert [call.args[1] for call in job_actions.save_default_job.call_args_list] == [
+        image,
+        video,
+    ]
+    job_actions.refresh_job_list.assert_called_once_with(main_window)
+    assert vars(main_window.video_processor) == original_state
+    main_window.video_processor.process_current_frame.assert_not_called()
 
 
 def test_process_batch_images_all_faces_uses_non_confirming_close(

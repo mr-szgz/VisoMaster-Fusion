@@ -498,6 +498,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.batchImageButton.clicked.connect(
             partial(video_control_actions.process_batch_images, self, False)
         )
+        self.batchSaveJobsButton.clicked.connect(
+            partial(video_control_actions.batch_save_jobs, self)
+        )
         self.batchallImageButton.clicked.connect(
             partial(video_control_actions.process_batch_images, self, True)
         )
