@@ -172,6 +172,7 @@ def test_job_list_widgets_with_real_qt(tmp_path):
         exec(compile(ast.Module(body=[dialog_node], type_ignores=[]), str(source), "exec"), namespace)
         Dialog = namespace["SaveJobDialog"]
         parent = QtWidgets.QWidget()
+        parent.jobQueueList = queue
         parent.control = {"ClusterOutputBySourceToggle": True}
         parent.selected_video_button = SimpleNamespace(media_path="current.png")
         item.setData(widgets.JobDataRole.FrameCountRole, 20100)
@@ -199,7 +200,8 @@ def test_job_list_widgets_with_real_qt(tmp_path):
                      if isinstance(n, ast.FunctionDef) and n.name in ("save_job_workspace", "edit_job")]
         from typing import Optional
         namespace.update(
-            json=json, Path=Path, Optional=Optional, JobQueueListWidgetItem=widgets.JobQueueListWidgetItem,
+            json=json, Path=Path, Optional=Optional, Qt=QtCore.Qt,
+            JobQueueListWidgetItem=widgets.JobQueueListWidgetItem,
             widget_components=SimpleNamespace(SaveJobDialog=Dialog, TargetMediaCardButton=object),
             _serialize_job_data=lambda mw: copy.deepcopy(job), refresh_job_list=MagicMock(),
             common_widget_actions=MagicMock(),
@@ -218,13 +220,17 @@ def test_job_list_widgets_with_real_qt(tmp_path):
             dialog.job_name_edit.setText("Renamed")
             dialog.restore_selected_face_checkbox.setChecked(True)
             dialog.output_name_edit.setText("edited-output")
+            dialog.buttonBox.button(QtWidgets.QDialogButtonBox.Ok).click()
             return QtWidgets.QDialog.Accepted
+        namespace["refresh_job_list"].side_effect = lambda mw: item.setData(
+            widgets.JobDataRole.JobNameRole, "Renamed")
         with patch.object(Dialog, "exec", accept_edit):
             namespace["edit_job"](parent, item)
         updated = json.loads((root / "Renamed.json").read_text())
         assert updated == {**job, "restore_selected_face": True, "output_file_name": "edited-output"}
         assert not path.exists()
-        namespace["refresh_job_list"].assert_called_once_with(parent, selected_job_name="Renamed")
+        namespace["refresh_job_list"].assert_called_once_with(parent)
+        assert queue.currentItem() is item
 
         # The regenerated Designer form actually uses the promoted widget.
         from app.ui.core.main_window import Ui_MainWindow
@@ -322,8 +328,18 @@ def test_real_main_window_job_save_and_edit(tmp_path):
                 dialog.set_output_name_checkbox.setChecked(False)
                 dialog.output_name_edit.setText("custom-output")
                 dialog.restore_selected_face_checkbox.setChecked(True)
-                QtCore.QTimer.singleShot(0, dialog.accept)
-                return original_exec(dialog)
+                save_button = dialog.buttonBox.button(QtWidgets.QDialogButtonBox.Ok)
+                original_refresh = actions.refresh_job_list
+                def refresh_while_visible(main_window):
+                    assert dialog.isVisible()
+                    assert not save_button.isEnabled()
+                    assert save_button.text() == "Saving…"
+                    assert (jobs / "Renamed.json").is_file()
+                    original_refresh(main_window)
+                    assert dialog.isVisible()
+                QtCore.QTimer.singleShot(0, save_button.click)
+                with patch.object(actions, "refresh_job_list", refresh_while_visible):
+                    return original_exec(dialog)
             with patch.object(widget_components.SaveJobDialog, "exec", edit_dialog_exec):
                 actions.edit_job(window, item)
             updated = json.loads((jobs / "Renamed.json").read_text())
@@ -352,3 +368,4 @@ def test_real_main_window_job_save_and_edit(tmp_path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS actual MainWindow" in result.stdout
+    assert "Traceback" not in result.stderr, result.stderr

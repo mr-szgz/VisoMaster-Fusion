@@ -2490,7 +2490,8 @@ class SaveJobDialog(QtWidgets.QDialog):
         self.buttonBox = QtWidgets.QDialogButtonBox(QBtn)
         if job_item is not None:
             self.buttonBox.button(QtWidgets.QDialogButtonBox.Ok).setText("Save Changes")
-        self.buttonBox.accepted.connect(self.accept)
+        else:
+            self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
 
         # Layout

@@ -1598,23 +1598,40 @@ def edit_job(main_window: "MainWindow", job_item: JobQueueListWidgetItem):
         job_data = json.load(job_file)
 
     dialog = widget_components.SaveJobDialog(main_window, job_item=job_item)
-    if dialog.exec() != QtWidgets.QDialog.Accepted:
-        return
 
-    updated_name = dialog.job_name
-    job_data["use_job_name_for_output"] = dialog.use_job_name_for_output
-    job_data["output_file_name"] = dialog.output_file_name
-    job_data["restore_selected_face"] = dialog.restore_selected_face
-    if updated_name != job_path.stem:
-        job_path = job_path.rename(job_path.parent / f"{updated_name}.json")
-    with job_path.open("r+", encoding="utf-8") as job_file:
-        json.dump(job_data, job_file, indent=4)
-        job_file.truncate()
+    def save_changes():
+        save_button = dialog.buttonBox.button(QtWidgets.QDialogButtonBox.Ok)
+        save_button.setEnabled(False)
+        save_button.setText("Saving…")
+        save_button.repaint()
 
-    refresh_job_list(main_window, selected_job_name=updated_name)
-    common_widget_actions.create_and_show_toast_message(
-        main_window, "Job Updated", f"Job '{updated_name}' has been updated."
-    )
+        updated_name = dialog.job_name
+        job_data["use_job_name_for_output"] = dialog.use_job_name_for_output
+        job_data["output_file_name"] = dialog.output_file_name
+        job_data["restore_selected_face"] = dialog.restore_selected_face
+        updated_path = job_path
+        if updated_name != job_path.stem:
+            updated_path = job_path.rename(job_path.parent / f"{updated_name}.json")
+        with updated_path.open("r+", encoding="utf-8") as job_file:
+            json.dump(job_data, job_file, indent=4)
+            job_file.truncate()
+
+        refresh_job_list(main_window)
+        dialog.accept()
+        job_list = main_window.jobQueueList
+        model = job_list.model()
+        index = model.match(
+            model.index(0, 0), JobDataRole.JobNameRole, updated_name,
+            1, Qt.MatchFlag.MatchExactly,
+        )[0]
+        job_list.setCurrentIndex(index)
+        job_list.scrollTo(index, QtWidgets.QAbstractItemView.ScrollHint.EnsureVisible)
+        common_widget_actions.create_and_show_toast_message(
+            main_window, "Job Updated", f"Job '{updated_name}' has been updated."
+        )
+
+    dialog.buttonBox.accepted.connect(save_changes)
+    dialog.exec()
 
 
 def connect_job_manager_signals(main_window: "MainWindow"):
