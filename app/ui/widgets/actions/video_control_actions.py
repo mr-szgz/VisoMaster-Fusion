@@ -2704,6 +2704,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     """
     # 0. During a batch, this button restores the progress dialog instead of starting another batch.
     if main_window.is_batch_processing:
+        main_window.batch_processing_button.setChecked(True)
         main_window.batch_progress_dialog.show()
         main_window.batch_progress_dialog.raise_()
         main_window.batch_progress_dialog.activateWindow()
@@ -2843,12 +2844,21 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     progress_dialog.setWindowTitle("Batch Processing Media")
     progress_dialog.findChild(QtWidgets.QProgressBar).valueChanged.connect(
         lambda value: batch_button.setText(
-            f"Processing Media {100 * value // len(media_files_to_process)}%"
+            f"{'Open ' if progress_dialog.isHidden() else ''}Processing Media "
+            f"({min(value + 1, len(media_files_to_process))}/{len(media_files_to_process)})"
+        )
+    )
+    progress_dialog.visibilityChanged.connect(
+        lambda visible: batch_button.setText(
+            f"{'' if visible else 'Open '}Processing Media "
+            f"({min(progress_dialog.value() + 1, len(media_files_to_process))}/{len(media_files_to_process)})"
         )
     )
     main_window.batch_progress_dialog = progress_dialog
     main_window.batch_processing_button = batch_button
     main_window.is_batch_processing = True
+    batch_button.setCheckable(True)
+    batch_button.setChecked(True)
     main_window.batchImageButton.setEnabled(not process_all_faces)
     main_window.batchSaveJobsButton.setEnabled(False)
     main_window.batchallImageButton.setEnabled(process_all_faces)
@@ -2866,7 +2876,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
             progress_dialog.setLabelText(os.path.basename(media_path))
             QtWidgets.QApplication.processEvents()  # Keep UI responsive
 
-            if progress_dialog.confirmedCanceled():
+            if progress_dialog.confirmedCanceled() or progress_dialog.stop_requested:
                 break
 
             try:
@@ -3030,6 +3040,11 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     ):
                         QtWidgets.QApplication.processEvents()  # Process UI events (like cancel button)
 
+                        if progress_dialog.stop_requested:
+                            if main_window.video_processor.recording:
+                                main_window.video_processor._finalize_default_style_recording()
+                            break
+
                         # Check for cancellation *inside* the video wait loop
                         if progress_dialog.confirmedCanceled():
                             print(
@@ -3068,11 +3083,15 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
             if not progress_dialog.confirmedCanceled():
                 progress_dialog.setValue(processed_count + failed_count)
+            if progress_dialog.stop_requested:
+                break
 
     finally:
         main_window.is_batch_processing = False
         main_window.batch_progress_dialog = None
         main_window.batch_processing_button = None
+        batch_button.setChecked(False)
+        batch_button.setCheckable(False)
         batch_button.setText(original_button_text)
         main_window.batchImageButton.setEnabled(original_batch_enabled)
         main_window.batchSaveJobsButton.setEnabled(original_batch_save_enabled)
@@ -3081,7 +3100,13 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
         progress_dialog.close_without_confirmation()
 
         # 9. Show completion message
-        if progress_dialog.confirmedCanceled():
+        if progress_dialog.stop_requested:
+            result_msg = (
+                f"Batch processing stopped.\n\n"
+                f"Processed: {processed_count}\n"
+                f"Failed: {failed_count}"
+            )
+        elif progress_dialog.confirmedCanceled():
             result_msg = (
                 f"Batch processing cancelled.\n\n"
                 f"Processed: {processed_count}\n"

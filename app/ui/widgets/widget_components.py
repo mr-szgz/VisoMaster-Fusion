@@ -22,6 +22,7 @@ from app.ui.widgets.actions import graphics_view_actions
 from app.ui.widgets.actions import card_actions
 from app.ui.widgets.actions import save_load_actions
 from app.ui.widgets.actions import list_view_actions
+from app.ui.widgets.job_list_widgets import JobDataRole
 import app.helpers.miscellaneous as misc_helpers
 from app.helpers.miscellaneous import get_video_rotation
 
@@ -2161,6 +2162,8 @@ class ProgressDialog(QtWidgets.QProgressDialog):
     - Batch code must check confirmedCanceled() instead of wasCanceled().
     """
 
+    visibilityChanged = QtCore.Signal(bool)
+
     def __init__(self, *args, total_items: int | None = None, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -2168,10 +2171,18 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self._confirmed_cancelled = False
         self._confirm_dialog_open = False
         self._confirmation_disabled = False
+        self.stop_requested = False
+        self.cancel_button = self.findChild(QtWidgets.QPushButton)
+        self.stop_button = QtWidgets.QPushButton("Stop", self)
+        self.stop_button.setToolTip("Save the current recording and stop the batch")
+        self.stop_button.clicked.connect(self.request_stop)
 
-        self.runtime_label = QtWidgets.QLabel("Batch runtime: 00:00:00", self)
+        self.runtime_label = QtWidgets.QLabel("Runtime: 00:00:00", self)
         self.runtime_label.adjustSize()
-        self.setMinimumWidth(self.sizeHint().width() + self.runtime_label.width())
+        self.setMinimumWidth(
+            self.sizeHint().width() + self.runtime_label.width()
+            + self.stop_button.sizeHint().width() + 12
+        )
         self.runtime_clock = QtCore.QElapsedTimer()
         self.runtime_clock.start()
         self.runtime_timer = QtCore.QTimer(self)
@@ -2202,14 +2213,23 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         seconds = self.runtime_clock.elapsed() // 1000
         hours, seconds = divmod(seconds, 3600)
         minutes, seconds = divmod(seconds, 60)
-        self.runtime_label.setText(f"Batch runtime: {hours:02}:{minutes:02}:{seconds:02}")
+        self.runtime_label.setText(f"Runtime: {hours:02}:{minutes:02}:{seconds:02}")
         self.runtime_label.adjustSize()
+
+    def request_stop(self):
+        self.stop_requested = True
+        self.stop_button.setEnabled(False)
+        self.cancel_button.setEnabled(False)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         # QProgressDialog positions its children itself; use its existing button row.
         bar = self.findChild(QtWidgets.QProgressBar)
-        cancel_button = self.findChild(QtWidgets.QPushButton)
+        cancel_button = self.cancel_button
+        self.stop_button.resize(self.stop_button.sizeHint().width(), cancel_button.height())
+        self.stop_button.move(
+            cancel_button.x() - self.stop_button.width() - 12, cancel_button.y()
+        )
         self.runtime_label.move(
             bar.x(), cancel_button.geometry().center().y() - self.runtime_label.height() // 2
         )
@@ -2219,6 +2239,14 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             # The progress value counts finished items; the label names the next item.
             text = f"Processing ({self.value() + 1}/{self.total_items}): {text}"
         super().setLabelText(text)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.visibilityChanged.emit(True)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.visibilityChanged.emit(False)
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -2391,24 +2419,30 @@ class JobLoadingDialog(QtWidgets.QDialog):
 
 
 class SaveJobDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None, input_filename="", job_data=None):
+    def __init__(self, parent=None, input_filename="", job_item=None):
         super().__init__(parent)
-        if job_data is None:
+        if job_item is None:
             target_media_path = parent.selected_video_button.media_path
             use_job_name_for_output = True
             output_name = input_filename
             restore_selected_face = parent.control["ClusterOutputBySourceToggle"]
+            if misc_helpers.get_file_type(target_media_path) == "image":
+                total_frames, frame_rate = 1, 0.0
+            else:
+                capture = cv2.VideoCapture()
+                capture.setExceptionMode(True)
+                capture.open(str(target_media_path))
+                total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+                frame_rate = capture.get(cv2.CAP_PROP_FPS)
+                capture.release()
             self.setWindowTitle("Save Job")
         else:
-            target_media = next(
-                media
-                for media in job_data["target_medias_data"]
-                if media["media_id"] == job_data["selected_media_id"]
-            )
-            target_media_path = target_media["media_path"]
-            use_job_name_for_output = job_data["use_job_name_for_output"]
-            output_name = job_data["output_file_name"]
-            restore_selected_face = job_data["restore_selected_face"]
+            input_filename = job_item.data(JobDataRole.JobNameRole)
+            use_job_name_for_output = job_item.data(JobDataRole.UseJobNameForOutputRole)
+            output_name = job_item.data(JobDataRole.OutputFileNameRole)
+            restore_selected_face = job_item.data(JobDataRole.RestoreSelectedFaceRole)
+            total_frames = job_item.data(JobDataRole.FrameCountRole)
+            frame_rate = job_item.data(JobDataRole.FrameRateRole)
             self.setWindowTitle("Edit Job")
         self.setWindowIcon(QtGui.QIcon(":/media/media/visomaster_small.png"))
 
@@ -2428,23 +2462,16 @@ class SaveJobDialog(QtWidgets.QDialog):
         )
         self.restore_selected_face_checkbox.setChecked(restore_selected_face)
 
-        if misc_helpers.get_file_type(target_media_path) == "image":
-            report = [("Frames:", "1")]
-        else:
-            capture = cv2.VideoCapture()
-            capture.setExceptionMode(True)
-            capture.open(str(target_media_path))
-            total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-            frame_rate = capture.get(cv2.CAP_PROP_FPS)
-            capture.release()
-            report = [("Frames:", f"{total_frames:,}")]
-            if frame_rate > 0:
-                hours, remainder = divmod(int(total_frames / frame_rate), 3600)
-                minutes, seconds = divmod(remainder, 60)
-                report.extend([
-                    ("Frame rate:", f"{frame_rate:g} fps"),
-                    ("Length:", f"{hours:02d}:{minutes:02d}:{seconds:02d}"),
-                ])
+        report = [("Frames:", f"{total_frames:,}")]
+        if job_item is not None:
+            report.insert(0, ("Embedding:", ", ".join(job_item.data(JobDataRole.EmbeddingNamesRole))))
+        if frame_rate > 0:
+            hours, remainder = divmod(int(total_frames / frame_rate), 3600)
+            minutes, seconds = divmod(remainder, 60)
+            report.extend([
+                ("Frame rate:", f"{frame_rate:g} fps"),
+                ("Length:", f"{hours:02d}:{minutes:02d}:{seconds:02d}"),
+            ])
         self.media_report_layout = QtWidgets.QGridLayout()
         self.media_report_layout.setColumnStretch(1, 1)
         for row, (field, value) in enumerate(report):
@@ -2461,7 +2488,7 @@ class SaveJobDialog(QtWidgets.QDialog):
         # Button box
         QBtn = QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
         self.buttonBox = QtWidgets.QDialogButtonBox(QBtn)
-        if job_data is not None:
+        if job_item is not None:
             self.buttonBox.button(QtWidgets.QDialogButtonBox.Ok).setText("Save Changes")
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)

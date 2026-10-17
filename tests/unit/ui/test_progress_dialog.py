@@ -149,6 +149,23 @@ def _flush_qt_events(app):
 
 
 @pytest.mark.qt
+def test_progress_dialog_stop_preserves_cancel_state(progress_dialog_module, qapp):
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2)
+    dialog.show()
+    _flush_qt_events(qapp)
+
+    assert dialog.stop_button.geometry().right() < dialog.cancel_button.x()
+    assert dialog.runtime_label.geometry().right() < dialog.stop_button.x()
+    dialog.stop_button.click()
+
+    assert dialog.stop_requested
+    assert not dialog.confirmedCanceled()
+    assert not dialog.stop_button.isEnabled()
+    assert not dialog.cancel_button.isEnabled()
+    dialog.close_without_confirmation()
+
+
+@pytest.mark.qt
 def test_progress_dialog_close_without_confirmation_skips_prompt(
     monkeypatch, progress_dialog_module, qapp
 ):
@@ -261,7 +278,7 @@ def test_progress_dialog_keeps_one_batch_clock_across_items_and_minimize(
     dialog.setLabelText("second.png")
     clock.elapsed.return_value = 3661000
     dialog.runtime_timer.timeout.emit()
-    assert dialog.runtime_label.text() == "Batch runtime: 01:01:01"
+    assert dialog.runtime_label.text() == "Runtime: 01:01:01"
     _flush_qt_events(qapp)
     assert not dialog.isVisible()
     assert qapp.activeModalWidget() is None
@@ -276,7 +293,7 @@ def test_progress_dialog_keeps_one_batch_clock_across_items_and_minimize(
     dialog.close_without_confirmation()
     clock.start.assert_called_once()
     assert not dialog.runtime_timer.isActive()
-    assert dialog.runtime_label.text() == "Batch runtime: 01:01:02"
+    assert dialog.runtime_label.text() == "Runtime: 01:01:02"
     parent.close()
 
 
