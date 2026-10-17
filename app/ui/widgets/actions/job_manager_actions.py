@@ -1371,14 +1371,11 @@ def _update_process_all_button_state(main_window: "MainWindow", job_count: int) 
     if button is None:
         return
 
-    if _is_job_processor_running(main_window):
-        button.setText("Stop Queue")
-        button.setToolTip("Stop the active job queue")
-        button.setEnabled(True)
-    else:
-        button.setText("Process All")
-        button.setToolTip("Process every saved job in the queue")
-        button.setEnabled(job_count > 0)
+    active = main_window.job_progress_dialog is not None
+    button.setToolTip("Process every saved job in the queue")
+    button.setEnabled(
+        main_window.job_processing_button is button if active else job_count > 0
+    )
 
 
 def update_job_manager_buttons(main_window: "MainWindow"):
@@ -1386,36 +1383,36 @@ def update_job_manager_buttons(main_window: "MainWindow"):
     job_list = main_window.jobQueueList
     selected_count = len(job_list.selectedItems()) if job_list else 0
     job_count = job_list.count() if job_list else 0
+    running = main_window.job_progress_dialog is not None
 
     enable_on_multi_selection = selected_count > 0
     enable_on_single_selection = selected_count == 1
 
     if hasattr(main_window, "buttonProcessSelected"):
-        main_window.buttonProcessSelected.setEnabled(enable_on_multi_selection)
+        main_window.buttonProcessSelected.setEnabled(
+            main_window.job_processing_button is main_window.buttonProcessSelected
+            if running else enable_on_multi_selection
+        )
+    main_window.buttonStopProcessing.setEnabled(
+        running and not main_window.job_processor.cancel_requested_event.is_set()
+    )
     if hasattr(main_window, "loadJobButton"):
         main_window.loadJobButton.setEnabled(
-            enable_on_single_selection
+            enable_on_single_selection and not running
         )  # Only allow loading one job
     if hasattr(main_window, "deleteJobButton"):
-        main_window.deleteJobButton.setEnabled(enable_on_multi_selection)
+        main_window.deleteJobButton.setEnabled(enable_on_multi_selection and not running)
 
     _update_process_all_button_state(main_window, job_count)
 
 
-def handle_process_all_button(main_window: "MainWindow"):
-    """Dynamic Process All button behavior: start queue when idle, stop queue when running."""
-    if _is_job_processor_running(main_window):
-        try:
-            main_window.job_processor.request_cancel(
-                "Cancelled by user via Stop Queue button."
-            )
-        except Exception as e:
-            print(f"[WARN] Failed to request queue cancellation: {e}")
-        finally:
-            update_job_manager_buttons(main_window)
-        return
-
-    start_processing_all_jobs(main_window)
+def stop_processing_jobs(main_window: "MainWindow"):
+    """Request cancellation of the active job queue."""
+    main_window.job_progress_dialog.stopping()
+    main_window.job_processor.request_cancel(
+        "Cancelled by user via Stop Processing button."
+    )
+    update_job_manager_buttons(main_window)
 
 
 def setup_job_manager_ui(main_window: "MainWindow"):
@@ -1436,6 +1433,9 @@ def setup_job_manager_ui(main_window: "MainWindow"):
     main_window.buttonProcessAll = main_window.findChild(
         QtWidgets.QPushButton, "buttonProcessAll"
     )
+    main_window.buttonStopProcessing = main_window.findChild(
+        QtWidgets.QPushButton, "buttonStopProcessing"
+    )
     main_window.loadJobButton = main_window.findChild(
         QtWidgets.QPushButton, "loadJobButton"
     )
@@ -1454,6 +1454,8 @@ def setup_job_manager_ui(main_window: "MainWindow"):
 
     # Initial population and state update
     main_window.job_processor = None
+    main_window.job_progress_dialog = None
+    main_window.job_processing_button = None
     refresh_job_list(main_window)
     update_job_manager_buttons(main_window)
 
@@ -1646,8 +1648,11 @@ def connect_job_manager_signals(main_window: "MainWindow"):
         )
     if main_window.buttonProcessAll:
         main_window.buttonProcessAll.clicked.connect(
-            lambda: handle_process_all_button(main_window)
+            lambda: start_processing_all_jobs(main_window)
         )
+    main_window.buttonStopProcessing.clicked.connect(
+        lambda: stop_processing_jobs(main_window)
+    )
     if main_window.buttonProcessSelected:
         main_window.buttonProcessSelected.clicked.connect(
             lambda: process_selected_job(main_window)
@@ -1891,14 +1896,16 @@ def handle_batch_completion(main_window: "MainWindow"):
     """
     (SLOT) Called when the JobProcessor finishes its batch.
     Restores the workspace to its pre-batch state using a snapshot.
-    Shows confirmation and skipped job reports after restoration.
+    Shows the job-run report after restoration.
     """
     if not main_window.job_processor:
         return
 
     batch_succeeded = main_window.job_processor.batch_succeeded
-    batch_cancelled = getattr(main_window.job_processor, "batch_cancelled", False)
-    skipped_jobs = main_window.job_processor.skipped_jobs
+    main_window.video_processor.processing_started_signal.disconnect(
+        main_window.job_progress_dialog.processing_started
+    )
+    main_window.job_progress_dialog.finish()
 
     print(f"[INFO] Batch finished (Success: {batch_succeeded}).")
 
@@ -1925,35 +1932,11 @@ def handle_batch_completion(main_window: "MainWindow"):
         # (Fallback) Just refresh VRAM, as we can't restore or reset
         common_widget_actions.update_gpu_memory_progressbar(main_window)
 
-    # --- Show Batch Reports (AFTER restoration) ---
-
-    # Report skipped jobs (if any)
-    if skipped_jobs:
-        skipped_message = "The following jobs were skipped due to errors:\n\n"
-        skipped_message += "\n".join(f"- {job_error}" for job_error in skipped_jobs)
-        QMessageBox.warning(main_window, "Skipped Jobs", skipped_message)
-
-    # Report final status
-    if batch_cancelled:
-        QMessageBox.information(
-            main_window,
-            "Job Processing Stopped",
-            "Job queue was cancelled by user. Remaining jobs were not processed.",
-        )
-    elif batch_succeeded:
-        QMessageBox.information(
-            main_window,
-            "Job Processing Complete",
-            "All valid jobs have finished processing.",
-        )
-    else:
-        # Batch failed
-        QMessageBox.warning(
-            main_window,
-            "Job Processing Failed",
-            "The job batch finished with errors. Please check the log for details. "
-            "Any jobs that failed were not moved to 'completed'.",
-        )
+    main_window.job_progress_dialog.show_result(
+        main_window.job_processor,
+        "Process All" if main_window.job_processing_button is main_window.buttonProcessAll
+        else "Process Selected",
+    )
     # Clean up the job processor to prevent "zombie listeners"
     if main_window.job_processor:
         try:
@@ -1978,6 +1961,13 @@ def handle_batch_completion(main_window: "MainWindow"):
         main_window.job_processor = None
         print("[INFO] JobProcessor cleaned up.")
 
+    main_window.job_processing_button.setChecked(False)
+    main_window.job_processing_button.setCheckable(False)
+    main_window.buttonProcessAll.setText("Process All")
+    main_window.buttonProcessSelected.setText("Process Selected")
+    main_window.job_progress_dialog.deleteLater()
+    main_window.job_progress_dialog = None
+    main_window.job_processing_button = None
     update_job_manager_buttons(main_window)
 
 
@@ -1986,6 +1976,11 @@ def handle_batch_completion(main_window: "MainWindow"):
 
 def process_selected_job(main_window: "MainWindow"):
     """Starts a JobProcessor thread for only the selected jobs."""
+    if main_window.job_progress_dialog is not None:
+        main_window.job_progress_dialog.show()
+        main_window.job_progress_dialog.raise_()
+        main_window.job_progress_dialog.activateWindow()
+        return
     if video_control_actions.block_if_issue_scan_active(
         main_window, "start selected jobs"
     ):
@@ -2004,6 +1999,11 @@ def process_selected_job(main_window: "MainWindow"):
 
 def start_processing_all_jobs(main_window: "MainWindow"):
     """Starts a JobProcessor thread for all jobs in the list."""
+    if main_window.job_progress_dialog is not None:
+        main_window.job_progress_dialog.show()
+        main_window.job_progress_dialog.raise_()
+        main_window.job_progress_dialog.activateWindow()
+        return
     if video_control_actions.block_if_issue_scan_active(
         main_window, "start job processing"
     ):
@@ -2018,25 +2018,6 @@ def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | 
     Helper function to create, connect, and start the JobProcessor thread.
     """
 
-    # Ensure no other processor is running
-    if main_window.job_processor and main_window.job_processor.isRunning():
-        reply = QMessageBox.question(
-            main_window,
-            "Queue Running",
-            "A job queue is already processing.\n\n"
-            "Do you want to stop the remaining queue now?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply == QMessageBox.Yes:
-            try:
-                main_window.job_processor.request_cancel(
-                    "Cancelled by user from job processing button."
-                )
-            except Exception as e:
-                print(f"[WARN] Failed to request queue cancellation: {e}")
-        return
-
     # Save the current workspace state before starting the batch
     print("[INFO] Saving workspace snapshot before starting job processor...")
     main_window.workspace_snapshot_before_batch = _serialize_job_data(main_window)
@@ -2044,6 +2025,35 @@ def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | 
     main_window.job_processor = JobProcessor(
         main_window, jobs_to_process=jobs_to_process
     )
+    from app.ui.widgets.job_progress_dialog import JobProgressDialog
+
+    job_items = {}
+    for index in range(main_window.jobQueueList.count()):
+        item = main_window.jobQueueList.item(index)
+        job_name = item.data(JobDataRole.JobNameRole)
+        if job_name in main_window.job_processor.jobs:
+            job_items[job_name] = QtWidgets.QListWidgetItem(item)
+    dialog = JobProgressDialog(main_window, job_items)
+    main_window.job_progress_dialog = dialog
+    button = (
+        main_window.buttonProcessAll if jobs_to_process is None
+        else main_window.buttonProcessSelected
+    )
+    main_window.job_processing_button = button
+    button.setCheckable(True)
+    button.setChecked(False)
+    command = "Processing All Jobs" if jobs_to_process is None else "Processing Selected Jobs"
+    button.setText(f"{command} (0/{len(job_items)})")
+    dialog.minimizedChanged.connect(button.setChecked)
+    dialog.progressChanged.connect(
+        lambda current, total: button.setText(f"{command} ({current}/{total})")
+    )
+    dialog.stopRequested.connect(lambda: stop_processing_jobs(main_window))
+    main_window.job_processor.queue_ready_signal.connect(dialog.queue_ready)
+    main_window.job_processor.job_started_signal.connect(dialog.job_started)
+    main_window.job_processor.job_completed_signal.connect(dialog.job_completed)
+    main_window.job_processor.job_failed_signal.connect(dialog.job_failed)
+    main_window.video_processor.processing_started_signal.connect(dialog.processing_started)
 
     # Connect signals from the worker thread to slots in the main thread
     # Connect signals for new batch-loading process
@@ -2063,7 +2073,7 @@ def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | 
             main_window
         )  # The signal sends job_name, refresh_job_list is called
     )
-    main_window.job_processor.all_jobs_done_signal.connect(
+    main_window.job_processor.finished.connect(
         lambda: handle_batch_completion(main_window)
     )
     main_window.job_processor.job_failed_signal.connect(
@@ -2075,6 +2085,7 @@ def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | 
     print("[INFO] Starting job_processor thread...")
     main_window.job_processor.start()
     update_job_manager_buttons(main_window)
+    dialog.show()
 
 
 class JobProcessor(QThread):
@@ -2100,8 +2111,9 @@ class JobProcessor(QThread):
 
     # --- Signals for reporting ---
     job_completed_signal = Signal(str)
-    all_jobs_done_signal = Signal()
     job_failed_signal = Signal(str, str)
+    queue_ready_signal = Signal(int, int)
+    job_started_signal = Signal(str, int)
 
     # --- JobProcessor Timeouts (in seconds) ---
     JOB_START_TIMEOUT = 30  # Max time to wait for the video processor to start
@@ -2500,7 +2512,6 @@ class JobProcessor(QThread):
 
         if not self.jobs:
             print("[INFO] No jobs to process. Exiting run().")
-            self.all_jobs_done_signal.emit()
             return
 
         # --- 1. Analyze all jobs in the batch ---
@@ -2510,8 +2521,9 @@ class JobProcessor(QThread):
                 "[ERROR] Failed to analyze job batch (master_data is None). Aborting."
             )
             # _analyze_job_batch or _read_job_file should have emitted signals
-            self.all_jobs_done_signal.emit()
             return
+
+        self.queue_ready_signal.emit(len(self.job_data_list), len(self.skipped_jobs))
 
         # Check if any valid jobs remain after analysis
         if not self.job_data_list:
@@ -2519,7 +2531,6 @@ class JobProcessor(QThread):
                 "[WARN] No valid jobs found in batch after analysis. Skipping processing."
             )
             self.batch_succeeded = True  # No processing failed
-            self.all_jobs_done_signal.emit()
             return
 
         # --- 2. Load all master assets ONCE ---
@@ -2533,7 +2544,6 @@ class JobProcessor(QThread):
         ):  # Use instance event
             if self.cancel_requested_event.is_set():
                 print("[INFO] Batch cancelled while waiting for master assets.")
-                self.all_jobs_done_signal.emit()
                 return
             error_msg = "Timeout waiting for master assets to load."
             print(f"[ERROR] {error_msg}")
@@ -2542,19 +2552,19 @@ class JobProcessor(QThread):
 
         if self.cancel_requested_event.is_set():
             print("[INFO] Batch cancelled after master assets load.")
-            self.all_jobs_done_signal.emit()
             return
 
         print("[INFO] Master assets loaded event received, load complete.")
 
         # --- 3. Process each job with lightweight loading ---
-        for job_data in self.job_data_list:
+        for job_index, job_data in enumerate(self.job_data_list, 1):
             if self.cancel_requested_event.is_set():
                 print("[INFO] Batch cancellation detected before starting next job.")
                 break
 
             job_name = job_data.get("job_name_internal", "Unknown")
             self.current_job_name = job_name
+            self.job_started_signal.emit(job_name, job_index)
             print(f"[INFO] Beginning processing on job: {job_name}")
 
             # --- 3a. Load lightweight settings for this job ---
@@ -2637,4 +2647,3 @@ class JobProcessor(QThread):
 
         # --- 4. Finished ---
         print("[INFO] Finished processing all jobs loop.")
-        self.all_jobs_done_signal.emit()

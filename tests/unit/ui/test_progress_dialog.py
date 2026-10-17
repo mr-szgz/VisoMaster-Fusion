@@ -166,6 +166,37 @@ def test_progress_dialog_stop_preserves_cancel_state(progress_dialog_module, qap
 
 
 @pytest.mark.qt
+def test_batch_media_properties_update_without_job_data(progress_dialog_module, qapp):
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 3)
+    dialog.show()
+    dialog.set_media_properties(["Alice", "Bob"], 90000, 25)
+    _flush_qt_events(qapp)
+    labels = dialog.media_report_labels
+    assert labels["Embedding:"][1].text() == "Alice, Bob"
+    assert labels["Frames:"][1].text() == "90,000"
+    assert labels["Frame rate:"][1].text() == "25 fps"
+    assert labels["Length:"][1].text() == "01:00:00"
+    assert labels["Length:"][1].isVisible()
+    title = dialog.findChild(QtWidgets.QLabel)
+    bar = dialog.findChild(QtWidgets.QProgressBar)
+    assert title.geometry().bottom() < bar.y()
+    assert bar.geometry().bottom() < dialog.media_report.y()
+    assert dialog.media_report.geometry().bottom() < dialog.remove_completed_checkbox.y()
+    assert len(dialog.media_report.findChildren(QtWidgets.QFrame, options=QtCore.Qt.FindDirectChildrenOnly)) >= 2
+
+    dialog.setLabelText("photo.png")
+    dialog.set_media_properties([], 1, 0)
+    assert labels["Embedding:"][1].text() == ""
+    assert labels["Frames:"][1].text() == "1"
+    assert not labels["Frame rate:"][1].isVisible()
+    assert not labels["Length:"][1].isVisible()
+    dialog.set_media_properties(["Carol"], 48, 24)
+    assert labels["Length:"][1].isVisible()
+    assert labels["Length:"][1].text() == "00:00:02"
+    dialog.close_without_confirmation()
+
+
+@pytest.mark.qt
 def test_progress_dialog_close_without_confirmation_skips_prompt(
     monkeypatch, progress_dialog_module, qapp
 ):
@@ -260,6 +291,9 @@ def test_progress_dialog_keeps_one_batch_clock_across_items_and_minimize(
     parent = QtWidgets.QWidget()
     parent.show()
     dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 4, parent)
+    batch_button = QtWidgets.QPushButton(parent)
+    batch_button.setCheckable(True)
+    dialog.minimizedChanged.connect(batch_button.setChecked)
     assert dialog.runtime_timer.isActive()
     assert dialog.runtime_timer.interval() == 1000
     dialog.setWindowModality(QtCore.Qt.WindowModal)
@@ -269,7 +303,21 @@ def test_progress_dialog_keeps_one_batch_clock_across_items_and_minimize(
     assert qapp.activeModalWidget() is dialog
 
     bar = dialog.findChild(QtWidgets.QProgressBar)
+    assert not batch_button.isChecked()
     cancel_button = dialog.findChild(QtWidgets.QPushButton)
+    checkbox = dialog.remove_completed_checkbox
+    assert not checkbox.isChecked()
+    label = dialog.findChild(QtWidgets.QLabel)
+    assert label.height() >= label.sizeHint().height()
+    assert label.geometry().bottom() < bar.y()
+    assert checkbox.y() > bar.geometry().bottom()
+    assert checkbox.geometry().bottom() < dialog.runtime_label.y()
+    assert checkbox.geometry().bottom() < cancel_button.y()
+    stop_checkbox = dialog.stop_after_completion_checkbox
+    assert not stop_checkbox.isChecked()
+    assert checkbox.geometry().bottom() < stop_checkbox.y()
+    assert stop_checkbox.geometry().bottom() < dialog.runtime_label.y()
+    stop_checkbox.setChecked(True)
     assert dialog.runtime_label.y() > bar.geometry().bottom()
     assert not dialog.runtime_label.geometry().intersects(cancel_button.geometry())
 
@@ -281,6 +329,7 @@ def test_progress_dialog_keeps_one_batch_clock_across_items_and_minimize(
     assert dialog.runtime_label.text() == "Runtime: 01:01:01"
     _flush_qt_events(qapp)
     assert not dialog.isVisible()
+    assert batch_button.isChecked()
     assert qapp.activeModalWidget() is None
     assert not dialog.confirmedCanceled()
 
@@ -288,6 +337,10 @@ def test_progress_dialog_keeps_one_batch_clock_across_items_and_minimize(
     _flush_qt_events(qapp)
     assert dialog.isVisible()
     assert dialog.value() == 2
+    assert stop_checkbox.isChecked()
+    assert checkbox.y() > bar.geometry().bottom()
+    assert checkbox.geometry().bottom() < cancel_button.y()
+    assert not batch_button.isChecked()
     assert qapp.activeModalWidget() is dialog
     clock.elapsed.return_value = 3662000
     dialog.close_without_confirmation()
@@ -295,6 +348,9 @@ def test_progress_dialog_keeps_one_batch_clock_across_items_and_minimize(
     assert not dialog.runtime_timer.isActive()
     assert dialog.runtime_label.text() == "Runtime: 01:01:02"
     parent.close()
+    next_dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 4)
+    assert not next_dialog.stop_after_completion_checkbox.isChecked()
+    next_dialog.close_without_confirmation()
 
 
 @pytest.mark.qt
@@ -315,4 +371,24 @@ def test_progress_dialog_item_labels_use_completed_progress(
             else "image.png"
         )
         assert dialog.labelText() == expected
+    dialog.close_without_confirmation()
+
+
+@pytest.mark.qt
+def test_skip_discards_without_cancel_confirmation(progress_dialog_module, qapp):
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2)
+    dialog.show()
+    _flush_qt_events(qapp)
+    assert dialog.runtime_label.geometry().right() < dialog.skip_button.x()
+    assert dialog.skip_button.geometry().right() < dialog.stop_button.x()
+    assert dialog.stop_button.geometry().right() < dialog.cancel_button.x()
+    dialog.remove_completed_checkbox.setChecked(True)
+    dialog.stop_after_completion_checkbox.setChecked(True)
+    dialog.skip_button.click()
+    assert dialog.skip_requested
+    assert not dialog.stop_requested
+    assert not dialog.confirmedCanceled()
+    assert not dialog.skip_button.isEnabled()
+    assert not dialog.stop_button.isEnabled()
+    assert not dialog.cancel_button.isEnabled()
     dialog.close_without_confirmation()

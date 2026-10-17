@@ -6,6 +6,13 @@ from PySide6 import QtCore, QtWidgets
 
 from app.helpers.miscellaneous import get_file_type
 
+JOB_LIST_LABEL_TPL_SELECTED_INDEX = 1
+
+JOB_LIST_ITEM_LABEL_TPL = (
+    '{job_name} ({embedding_names}){duration_text}',
+    '{embedding_names}{duration_text} {job_name}',
+    '{job_name}{duration_text}',
+)
 
 class JobDataRole(enum.IntEnum):
     JobNameRole = 0x180
@@ -66,11 +73,14 @@ class JobQueueListWidgetItem(QtWidgets.QListWidgetItem):
             capture.release()
 
     def to_label(self) -> str:
-        label = self.data(JobDataRole.JobNameRole)
-        names = self.data(JobDataRole.EmbeddingNamesRole)
-        if names:
-            label += f" ({', '.join(names)})"
-        return label + self.durationText()
+        job_name = self.data(JobDataRole.JobNameRole)
+        embedding_names = ', '.join(self.data(JobDataRole.EmbeddingNamesRole))
+        duration_text = self.durationText()
+        return JOB_LIST_ITEM_LABEL_TPL[JOB_LIST_LABEL_TPL_SELECTED_INDEX].format(
+            job_name=job_name,
+            embedding_names=embedding_names,
+            duration_text=duration_text,
+        ).strip()
 
     def to_tooltip(self) -> str:
         tooltip = f"Saved job {self.data(JobDataRole.MediaTypeRole)}{self.durationText()}"

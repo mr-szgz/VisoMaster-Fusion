@@ -2630,6 +2630,7 @@ class VideoProcessor(QObject):
                         ]
 
                     subprocess.run(args, check=True)
+                    self.recording_output_saved = True
                     final_output_duration = self._probe_video_duration(final_file_path)
                     if final_output_duration is not None:
                         print(
@@ -2655,6 +2656,7 @@ class VideoProcessor(QObject):
                         if FFmpegPostProcessor.write_video_only_output(
                             source_video=self.temp_file, output_video=final_file_path
                         ):
+                            self.recording_output_saved = True
                             print(
                                 f"[INFO] --- Video-only fallback succeeded: {final_file_path} ---"
                             )

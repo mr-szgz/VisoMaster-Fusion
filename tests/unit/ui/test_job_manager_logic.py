@@ -495,6 +495,8 @@ def _mock_mw(project_root: Path) -> MagicMock:
     """Minimal main_window mock with project_root_path set."""
     mw = MagicMock()
     mw.project_root_path = project_root
+    mw.job_progress_dialog = None
+    mw.job_processing_button = None
     return mw
 
 

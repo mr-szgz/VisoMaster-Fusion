@@ -2034,20 +2034,7 @@ def setup_embedding_tabs(main_window: "MainWindow") -> None:
         add_btn, 0, QtCore.Qt.AlignmentFlag.AlignTop
     )
 
-    if layout is not None:
-        idx = layout.indexOf(old_list)
-        if idx >= 0:
-            row, col, rowspan, colspan = layout.getItemPosition(idx)
-            layout.removeWidget(old_list)
-            layout.addWidget(tabs_container, row, col, rowspan, colspan)
-            if hasattr(layout, "setRowStretch"):
-                layout.setRowStretch(row, 0)
-        else:
-            old_list.hide()
-            tabs_container.setGeometry(old_list.geometry())
-            tabs_container.show()
-    else:
-        old_list.hide()
+    layout.replaceWidget(old_list, tabs_container)
 
     main_window.embeddingTabs = tabs
     main_window.embedding_tab_states = []

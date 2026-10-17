@@ -2162,7 +2162,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
     - Batch code must check confirmedCanceled() instead of wasCanceled().
     """
 
-    visibilityChanged = QtCore.Signal(bool)
+    minimizedChanged = QtCore.Signal(bool)
 
     def __init__(self, *args, total_items: int | None = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -2172,16 +2172,60 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self._confirm_dialog_open = False
         self._confirmation_disabled = False
         self.stop_requested = False
+        self.skip_requested = False
         self.cancel_button = self.findChild(QtWidgets.QPushButton)
+        self.skip_button = QtWidgets.QPushButton("Skip", self)
+        self.skip_button.setToolTip("Discard the current item and continue to the next")
+        self.skip_button.clicked.connect(self.request_skip)
         self.stop_button = QtWidgets.QPushButton("Stop", self)
         self.stop_button.setToolTip("Save the current recording and stop the batch")
         self.stop_button.clicked.connect(self.request_stop)
+        self.remove_completed_checkbox = QtWidgets.QCheckBox(
+            "Remove completed target media", self
+        )
+        self.remove_completed_checkbox.setToolTip(
+            "Remove finished items from the target list; keep stopped and cancelled items"
+        )
+        self.stop_after_completion_checkbox = QtWidgets.QCheckBox(
+            "Stop after current item", self
+        )
+        self.stop_after_completion_checkbox.setToolTip(
+            "Finish and save the current item, then stop before loading the next media"
+        )
+        self.media_report = QtWidgets.QWidget(self)
+        report_layout = QtWidgets.QVBoxLayout(self.media_report)
+        report_layout.setContentsMargins(0, 0, 0, 0)
+        report_top_line = QtWidgets.QFrame(self.media_report)
+        report_top_line.setFrameShape(QtWidgets.QFrame.HLine)
+        report_layout.addWidget(report_top_line)
+        report_layout.addSpacing(4)
+        self.media_report_layout = QtWidgets.QGridLayout()
+        self.media_report_layout.setColumnStretch(1, 1)
+        self.media_report_labels = {}
+        for row, field in enumerate(("Embedding:", "Frames:", "Frame rate:", "Length:")):
+            field_label = QtWidgets.QLabel(field, self.media_report)
+            value_label = QtWidgets.QLabel(self.media_report)
+            value_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+            self.media_report_layout.addWidget(field_label, row, 0)
+            self.media_report_layout.addWidget(value_label, row, 1)
+            self.media_report_labels[field] = (field_label, value_label)
+        report_layout.addLayout(self.media_report_layout)
+        report_layout.addSpacing(4)
+        report_bottom_line = QtWidgets.QFrame(self.media_report)
+        report_bottom_line.setFrameShape(QtWidgets.QFrame.HLine)
+        report_layout.addWidget(report_bottom_line)
 
         self.runtime_label = QtWidgets.QLabel("Runtime: 00:00:00", self)
         self.runtime_label.adjustSize()
+        self.setMinimumHeight(
+            self.sizeHint().height() + self.remove_completed_checkbox.sizeHint().height()
+            + self.stop_after_completion_checkbox.sizeHint().height()
+            + self.media_report.sizeHint().height() + 48
+        )
         self.setMinimumWidth(
             self.sizeHint().width() + self.runtime_label.width()
-            + self.stop_button.sizeHint().width() + 12
+            + self.stop_button.sizeHint().width()
+            + self.skip_button.sizeHint().width() + 24
         )
         self.runtime_clock = QtCore.QElapsedTimer()
         self.runtime_clock.start()
@@ -2216,19 +2260,61 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.runtime_label.setText(f"Runtime: {hours:02}:{minutes:02}:{seconds:02}")
         self.runtime_label.adjustSize()
 
-    def request_stop(self):
-        self.stop_requested = True
+    def request_skip(self):
+        self.skip_requested = True
+        self.skip_button.setEnabled(False)
         self.stop_button.setEnabled(False)
         self.cancel_button.setEnabled(False)
 
+    def request_stop(self):
+        self.stop_requested = True
+        self.skip_button.setEnabled(False)
+        self.stop_button.setEnabled(False)
+        self.cancel_button.setEnabled(False)
+
+    def set_media_properties(self, embedding_names, total_frames, frame_rate):
+        self.media_report_labels["Embedding:"][1].setText(", ".join(embedding_names))
+        self.media_report_labels["Frames:"][1].setText(f"{total_frames:,}")
+        for field in ("Frame rate:", "Length:"):
+            for label in self.media_report_labels[field]:
+                label.setVisible(frame_rate > 0)
+        if frame_rate > 0:
+            hours, remainder = divmod(int(total_frames / frame_rate), 3600)
+            minutes, seconds = divmod(remainder, 60)
+            self.media_report_labels["Frame rate:"][1].setText(f"{frame_rate:g} fps")
+            self.media_report_labels["Length:"][1].setText(
+                f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            )
+        self.position_batch_controls()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self.position_batch_controls()
+
+    def position_batch_controls(self):
         # QProgressDialog positions its children itself; use its existing button row.
         bar = self.findChild(QtWidgets.QProgressBar)
         cancel_button = self.cancel_button
+        self.stop_after_completion_checkbox.adjustSize()
+        stop_checkbox_y = cancel_button.y() - self.stop_after_completion_checkbox.height() - 12
+        self.stop_after_completion_checkbox.move(bar.x(), stop_checkbox_y)
+        self.remove_completed_checkbox.adjustSize()
+        checkbox_y = stop_checkbox_y - self.remove_completed_checkbox.height() - 12
+        self.remove_completed_checkbox.move(bar.x(), checkbox_y)
+        report_height = self.media_report.sizeHint().height()
+        self.media_report.setGeometry(
+            bar.x(), checkbox_y - report_height - 12, bar.width(), report_height
+        )
+        bar.move(bar.x(), self.media_report.y() - bar.height() - 12)
+        label = self.findChild(QtWidgets.QLabel)
+        label.resize(label.width(), bar.y() - label.y() - 12)
         self.stop_button.resize(self.stop_button.sizeHint().width(), cancel_button.height())
         self.stop_button.move(
             cancel_button.x() - self.stop_button.width() - 12, cancel_button.y()
+        )
+        self.skip_button.resize(self.skip_button.sizeHint().width(), cancel_button.height())
+        self.skip_button.move(
+            self.stop_button.x() - self.skip_button.width() - 12, cancel_button.y()
         )
         self.runtime_label.move(
             bar.x(), cancel_button.geometry().center().y() - self.runtime_label.height() // 2
@@ -2239,20 +2325,19 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             # The progress value counts finished items; the label names the next item.
             text = f"Processing ({self.value() + 1}/{self.total_items}): {text}"
         super().setLabelText(text)
+        self.position_batch_controls()
 
     def showEvent(self, event):
         super().showEvent(event)
-        self.visibilityChanged.emit(True)
-
-    def hideEvent(self, event):
-        super().hideEvent(event)
-        self.visibilityChanged.emit(False)
+        self.position_batch_controls()
+        self.minimizedChanged.emit(False)
 
     def changeEvent(self, event):
         super().changeEvent(event)
         if event.type() == QtCore.QEvent.WindowStateChange and self.isMinimized():
             self.hide()
             self.setWindowState(QtCore.Qt.WindowNoState)
+            self.minimizedChanged.emit(True)
 
     def confirmedCanceled(self) -> bool:
         """Return True only if the user confirmed stopping."""
@@ -2458,7 +2543,7 @@ class SaveJobDialog(QtWidgets.QDialog):
         self.set_output_name_checkbox.setChecked(use_job_name_for_output)
 
         self.restore_selected_face_checkbox = QtWidgets.QCheckBox(
-            "Follow source-name clustering for this job", self
+            "Cluster Output by Source Name", self
         )
         self.restore_selected_face_checkbox.setChecked(restore_selected_face)
 

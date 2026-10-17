@@ -146,10 +146,12 @@ def test_real_callbacks():
 def test_faces_panel_cycles(window):
     app = QtWidgets.QApplication.instance()
     w = QtWidgets.QWidget()
-    w.gridLayout_2 = QtWidgets.QGridLayout(w)
+    w.horizontalLayout_4 = QtWidgets.QHBoxLayout(w)
     w.facesButtonsWidget = QtWidgets.QWidget(w)
     w.controlButtonsLayout = QtWidgets.QVBoxLayout(w.facesButtonsWidget)
     w.targetFacesList = QtWidgets.QListWidget(w)
+    w.horizontalLayout_4.addWidget(w.facesButtonsWidget)
+    w.horizontalLayout_4.addWidget(w.targetFacesList)
     for name in (
         "findTargetFacesButton",
         "clearTargetFacesButton",

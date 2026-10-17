@@ -2704,7 +2704,6 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     """
     # 0. During a batch, this button restores the progress dialog instead of starting another batch.
     if main_window.is_batch_processing:
-        main_window.batch_processing_button.setChecked(True)
         main_window.batch_progress_dialog.show()
         main_window.batch_progress_dialog.raise_()
         main_window.batch_progress_dialog.activateWindow()
@@ -2721,7 +2720,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
         return
 
     # 2. Collect all media paths from the target list
-    media_files_to_process = []  # List of tuples: (media_path, file_type)
+    media_files_to_process = []  # Snapshot of (media_path, file_type, widget)
     num_images = 0
     num_videos = 0
 
@@ -2738,15 +2737,15 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
         if process_all_faces:
             # "All Faces" mode only processes images
             if file_type == "image":
-                media_files_to_process.append((media_path, file_type))
+                media_files_to_process.append((media_path, file_type, widget))
                 num_images += 1
         else:
             # "Selected Face" mode processes images AND videos
             if file_type == "image":
-                media_files_to_process.append((media_path, file_type))
+                media_files_to_process.append((media_path, file_type, widget))
                 num_images += 1
             elif file_type == "video":
-                media_files_to_process.append((media_path, file_type))
+                media_files_to_process.append((media_path, file_type, widget))
                 num_videos += 1
 
     # 3. Check if any media files were found
@@ -2842,23 +2841,26 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     )
     progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
     progress_dialog.setWindowTitle("Batch Processing Media")
+    progress_dialog.skip_button.clicked.connect(
+        lambda: main_window.video_processor.stop_processing()
+        if (
+            main_window.video_processor.processing
+            or main_window.video_processor.is_processing_segments
+        )
+        else None
+    )
     progress_dialog.findChild(QtWidgets.QProgressBar).valueChanged.connect(
         lambda value: batch_button.setText(
-            f"{'Open ' if progress_dialog.isHidden() else ''}Processing Media "
+            f"Processing Media "
             f"({min(value + 1, len(media_files_to_process))}/{len(media_files_to_process)})"
         )
     )
-    progress_dialog.visibilityChanged.connect(
-        lambda visible: batch_button.setText(
-            f"{'' if visible else 'Open '}Processing Media "
-            f"({min(progress_dialog.value() + 1, len(media_files_to_process))}/{len(media_files_to_process)})"
-        )
-    )
     main_window.batch_progress_dialog = progress_dialog
+    progress_dialog.minimizedChanged.connect(batch_button.setChecked)
     main_window.batch_processing_button = batch_button
     main_window.is_batch_processing = True
     batch_button.setCheckable(True)
-    batch_button.setChecked(True)
+    batch_button.setChecked(False)
     main_window.batchImageButton.setEnabled(not process_all_faces)
     main_window.batchSaveJobsButton.setEnabled(False)
     main_window.batchallImageButton.setEnabled(process_all_faces)
@@ -2867,17 +2869,27 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
     processed_count = 0
     failed_count = 0
+    skipped_count = 0
 
     try:
         # 7. Processing Loop
-        for media_path, file_type in media_files_to_process:
+        for media_path, file_type, media_widget in media_files_to_process:
+            progress_dialog.skip_requested = False
+            progress_dialog.skip_button.setEnabled(True)
+            progress_dialog.stop_button.setEnabled(True)
+            progress_dialog.cancel_button.setEnabled(True)
             # Update progress and check for cancellation
-            progress_dialog.setValue(processed_count + failed_count)
+            progress_dialog.setValue(processed_count + failed_count + skipped_count)
             progress_dialog.setLabelText(os.path.basename(media_path))
             QtWidgets.QApplication.processEvents()  # Keep UI responsive
 
             if progress_dialog.confirmedCanceled() or progress_dialog.stop_requested:
                 break
+
+            if progress_dialog.skip_requested:
+                skipped_count += 1
+                progress_dialog.setValue(processed_count + failed_count + skipped_count)
+                continue
 
             try:
                 # --- PROCESSING LOGIC ---
@@ -2943,6 +2955,24 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                 main_window.video_processor.current_frame_number = 0
                 # --- End Minimal Media Load ---
 
+                if process_all_faces:
+                    embedding_names = [embed.embedding_name for embed in saved_embeddings]
+                else:
+                    embedding_ids = dict.fromkeys(
+                        embedding_id
+                        for face in main_window.target_faces.values()
+                        for embedding_id in face.assigned_merged_embeddings
+                    )
+                    embedding_names = [
+                        main_window.merged_embeddings[embedding_id].embedding_name
+                        for embedding_id in embedding_ids
+                    ]
+                progress_dialog.set_media_properties(
+                    embedding_names,
+                    main_window.video_processor.max_frame_number + 1,
+                    main_window.video_processor.fps,
+                )
+
                 if file_type == "image":
                     # --- IMAGE PROCESSING ---
                     if process_all_faces:
@@ -2975,6 +3005,12 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                         main_window.video_processor.process_current_frame(
                             synchronous=True
                         )
+
+                    QtWidgets.QApplication.processEvents()
+                    if progress_dialog.skip_requested:
+                        skipped_count += 1
+                        progress_dialog.setValue(processed_count + failed_count + skipped_count)
+                        continue
 
                     # --- Get and save the processed image ---
                     frame = main_window.video_processor.current_frame
@@ -3030,6 +3066,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                         )
 
                     # 2. Trigger the recording. This will start the async process.
+                    main_window.video_processor.recording_output_saved = False
                     record_video(main_window, True)
 
                     # 3. Wait for the processing to finish.
@@ -3039,6 +3076,9 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                         or main_window.video_processor.is_processing_segments
                     ):
                         QtWidgets.QApplication.processEvents()  # Process UI events (like cancel button)
+
+                        if progress_dialog.skip_requested:
+                            break
 
                         if progress_dialog.stop_requested:
                             if main_window.video_processor.recording:
@@ -3058,6 +3098,11 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
                         QtCore.QThread.msleep(1)  # 1ms sleep
 
+                    if progress_dialog.skip_requested:
+                        skipped_count += 1
+                        progress_dialog.setValue(processed_count + failed_count + skipped_count)
+                        continue
+
                     # 4. At this point, record_video has completed (or been aborted)
                     # We must check *again* if the loop was exited due to cancellation
                     # to avoid incorrectly incrementing the 'processed_count'.
@@ -3068,6 +3113,40 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                         print(
                             f"[WARN] Video processing was cancelled for: {media_path}"
                         )
+
+                if (
+                    progress_dialog.remove_completed_checkbox.isChecked()
+                    and not progress_dialog.stop_requested
+                    and not progress_dialog.confirmedCanceled()
+                    and (
+                        file_type == "image"
+                        or main_window.video_processor.recording_output_saved
+                    )
+                ):
+                    # Remove only the list entry; deselection resets the shared batch settings.
+                    if main_window.selected_video_button is media_widget:
+                        main_window.selected_video_button = None
+                    if original_media_path == media_path:
+                        original_media_path = None
+                        original_file_type = None
+                        original_frame_num = 0
+                    main_window.targetVideosList.takeItem(media_widget.get_item_position())
+                    main_window.target_videos.pop(media_widget.media_id)
+                    media_widget.deleteLater()
+                    if not main_window.target_videos:
+                        main_window.placeholder_update_signal.emit(
+                            main_window.targetVideosList, False
+                        )
+
+                if (
+                    progress_dialog.stop_after_completion_checkbox.isChecked()
+                    and not progress_dialog.confirmedCanceled()
+                    and (
+                        file_type == "image"
+                        or main_window.video_processor.recording_output_saved
+                    )
+                ):
+                    progress_dialog.stop_requested = True
 
             except Exception as e:
                 # Log the error for this specific file and continue
@@ -3082,7 +3161,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     main_window.video_processor.stop_processing()
 
             if not progress_dialog.confirmedCanceled():
-                progress_dialog.setValue(processed_count + failed_count)
+                progress_dialog.setValue(processed_count + failed_count + skipped_count)
             if progress_dialog.stop_requested:
                 break
 
@@ -3119,6 +3198,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                 f"Failed to process: {failed_count}"
             )
 
+        result_msg += f"\nSkipped: {skipped_count}"
         result_msg += f"\n{progress_dialog.runtime_label.text()}"
         progress_dialog.deleteLater()
         common_widget_actions.create_and_show_messagebox(
