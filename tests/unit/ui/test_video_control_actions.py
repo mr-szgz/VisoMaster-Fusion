@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from PySide6.QtWidgets import QApplication, QProgressBar
 
 
 def _stub(name: str) -> MagicMock:
@@ -1170,14 +1171,21 @@ class _FakeCapture:
 
 class _FakeProgressDialog:
     instances: list["_FakeProgressDialog"] = []
-    confirmed_sequence = [False]
 
     def __init__(self, *_args, **_kwargs):
         self.value_calls = []
         self.labels = []
         self.closed_without_confirmation = 0
         self.shown = 0
-        self._confirmed_calls = 0
+        self.cancelled = False
+        self._app = QApplication.instance() or QApplication([])
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(_args[2], _args[3])
+        self.runtime_label = MagicMock(
+            text=MagicMock(return_value="Batch runtime: 00:01:23")
+        )
+        self.findChild = MagicMock(return_value=self.progress_bar)
+        self.deleteLater = MagicMock()
         _FakeProgressDialog.instances.append(self)
 
     def setWindowModality(self, *_args):
@@ -1188,6 +1196,7 @@ class _FakeProgressDialog:
 
     def setValue(self, value):
         self.value_calls.append(value)
+        self.progress_bar.setValue(value)
 
     def show(self):
         self.shown += 1
@@ -1196,9 +1205,7 @@ class _FakeProgressDialog:
         self.labels.append(value)
 
     def confirmedCanceled(self):
-        index = min(self._confirmed_calls, len(self.confirmed_sequence) - 1)
-        self._confirmed_calls += 1
-        return self.confirmed_sequence[index]
+        return self.cancelled
 
     def close_without_confirmation(self):
         self.closed_without_confirmation += 1
@@ -1314,6 +1321,14 @@ def _make_batch_main_window(*widgets):
         videoSeekSlider=_FakeSlider(),
         scene=SimpleNamespace(clear=MagicMock()),
         is_batch_processing=False,
+        batchImageButton=MagicMock(
+            text=MagicMock(return_value="Batch Selected"),
+            isEnabled=MagicMock(return_value=True),
+        ),
+        batchallImageButton=MagicMock(
+            text=MagicMock(return_value="Batch All"),
+            isEnabled=MagicMock(return_value=True),
+        ),
     )
 
 
@@ -1321,7 +1336,6 @@ def test_process_batch_images_all_faces_uses_non_confirming_close(
     monkeypatch, video_actions_env
 ):
     _FakeProgressDialog.instances = []
-    _FakeProgressDialog.confirmed_sequence = [False]
     main_window = _make_batch_main_window(
         _FakeBatchMediaWidget("image", "E:/media/image_1.png")
     )
@@ -1378,13 +1392,28 @@ def test_process_batch_images_all_faces_uses_non_confirming_close(
     )
     assert "Batch processing complete." in message
     assert "Successfully processed: 1" in message
+    assert "Batch runtime: 00:01:23" in message
+    assert progress_dialog.value_calls[-1] == 1
+    assert [
+        call.args[0] for call in main_window.batchallImageButton.setText.call_args_list
+    ] == [
+        "Processing Media 0%",
+        "Processing Media 100%",
+        "Batch All",
+    ]
+    main_window.batchImageButton.setText.assert_not_called()
+    assert main_window.batch_progress_dialog is None
+    assert main_window.batch_processing_button is None
+    main_window.batchImageButton.setEnabled.assert_called_with(True)
+    main_window.batchallImageButton.setEnabled.assert_called_with(True)
+    assert main_window.is_batch_processing is False
 
 
-def test_process_batch_images_mixed_batch_uses_non_confirming_close(
-    monkeypatch, video_actions_env
+@pytest.mark.parametrize("image_fails", [False, True])
+def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
+    monkeypatch, video_actions_env, image_fails
 ):
     _FakeProgressDialog.instances = []
-    _FakeProgressDialog.confirmed_sequence = [False]
     main_window = _make_batch_main_window(
         _FakeBatchMediaWidget("image", "E:/media/image_1.png"),
         _FakeBatchMediaWidget("video", "E:/media/video_1.mp4"),
@@ -1469,6 +1498,11 @@ def test_process_batch_images_mixed_batch_uses_non_confirming_close(
         video_actions_env.module.QtCore.QThread, "msleep", lambda *_args: None
     )
 
+    if image_fails:
+        main_window.video_processor.process_current_frame.side_effect = ValueError(
+            "Image processing failed"
+        )
+
     video_actions_env.process_batch_images(main_window, process_all_faces=False)
 
     progress_dialog = _FakeProgressDialog.instances[0]
@@ -1478,14 +1512,25 @@ def test_process_batch_images_mixed_batch_uses_non_confirming_close(
             2
         ]
     )
-    assert "Successfully processed: 2" in message
+    assert f"Successfully processed: {1 if image_fails else 2}" in message
+    assert f"Failed to process: {1 if image_fails else 0}" in message
+    assert progress_dialog.runtime_label.text() in message
+    assert progress_dialog.value_calls[-1] == 2
+    assert [
+        call.args[0] for call in main_window.batchImageButton.setText.call_args_list
+    ] == [
+        "Processing Media 0%",
+        "Processing Media 50%",
+        "Processing Media 100%",
+        "Batch Selected",
+    ]
+    main_window.batchallImageButton.setText.assert_not_called()
 
 
 def test_process_batch_images_cancelled_video_is_not_counted_completed(
     monkeypatch, video_actions_env
 ):
     _FakeProgressDialog.instances = []
-    _FakeProgressDialog.confirmed_sequence = [False, True, True]
     main_window = _make_batch_main_window(
         _FakeBatchMediaWidget("video", "E:/media/video_1.mp4")
     )
@@ -1558,6 +1603,7 @@ def test_process_batch_images_cancelled_video_is_not_counted_completed(
     def _record_video(mw, _checked):
         mw.video_processor.processing = True
         mw.video_processor.is_processing_segments = False
+        _FakeProgressDialog.instances[-1].cancelled = True
 
     monkeypatch.setattr(video_actions_env.module, "record_video", _record_video)
     monkeypatch.setattr(
@@ -1574,3 +1620,20 @@ def test_process_batch_images_cancelled_video_is_not_counted_completed(
     )
     assert "Batch processing cancelled." in message
     assert "Processed: 0" in message
+    assert "Batch runtime: 00:01:23" in message
+    main_window.batchImageButton.setText.assert_called_with("Batch Selected")
+    assert main_window.is_batch_processing is False
+
+
+@pytest.mark.parametrize("process_all_faces", [False, True])
+def test_active_batch_button_reopens_existing_dialog(
+    video_actions_env, process_all_faces
+):
+    dialog = MagicMock()
+    main_window = SimpleNamespace(
+        is_batch_processing=True, batch_progress_dialog=dialog
+    )
+    video_actions_env.process_batch_images(main_window, process_all_faces)
+    dialog.show.assert_called_once()
+    dialog.raise_.assert_called_once()
+    dialog.activateWindow.assert_called_once()

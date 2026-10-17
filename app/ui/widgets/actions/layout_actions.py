@@ -895,6 +895,15 @@ def set_all_parameters_and_control_widgets_enabled(
     if hasattr(main_window, "faceMaskToggleButton"):
         main_window.faceMaskToggleButton.setDisabled(disabled)
 
+    # Assign batch button if processing
+    if main_window.is_batch_processing:
+        main_window.batchImageButton.setEnabled(
+            main_window.batch_processing_button is main_window.batchImageButton
+        )
+        main_window.batchallImageButton.setEnabled(
+            main_window.batch_processing_button is main_window.batchallImageButton
+        )
+
     # List items
     for _, embed_button in main_window.merged_embeddings.items():
         embed_button.setDisabled(disabled)

@@ -2683,6 +2683,13 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     - Images: Applies current UI settings (target faces, inputs) to the image.
     - Videos: Applies current UI settings (markers, inputs, etc.) by running a full 'record' operation.
     """
+    # 0. During a batch, this button restores the progress dialog instead of starting another batch.
+    if main_window.is_batch_processing:
+        main_window.batch_progress_dialog.show()
+        main_window.batch_progress_dialog.raise_()
+        main_window.batch_progress_dialog.activateWindow()
+        return
+
     # 1. Check if output folder is set
     if not main_window.outputFolderLineEdit.text():
         common_widget_actions.create_and_show_messagebox(
@@ -2796,28 +2803,46 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
         original_target_faces = main_window.target_faces.copy()
 
     # 6. Setup Progress Dialog
+    batch_button = (
+        main_window.batchallImageButton
+        if process_all_faces
+        else main_window.batchImageButton
+    )
+    original_button_text = batch_button.text()
+    original_batch_enabled = main_window.batchImageButton.isEnabled()
+    original_batchall_enabled = main_window.batchallImageButton.isEnabled()
     progress_dialog = widget_components.ProgressDialog(
         "Starting batch processing...",
         "Cancel",
         0,
         len(media_files_to_process),
         main_window,
+        total_items=len(media_files_to_process),
     )
     progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
     progress_dialog.setWindowTitle("Batch Processing Media")
+    progress_dialog.findChild(QtWidgets.QProgressBar).valueChanged.connect(
+        lambda value: batch_button.setText(
+            f"Processing Media {100 * value // len(media_files_to_process)}%"
+        )
+    )
+    main_window.batch_progress_dialog = progress_dialog
+    main_window.batch_processing_button = batch_button
+    main_window.is_batch_processing = True
+    main_window.batchImageButton.setEnabled(not process_all_faces)
+    main_window.batchallImageButton.setEnabled(process_all_faces)
     progress_dialog.setValue(0)
     progress_dialog.show()
 
     processed_count = 0
     failed_count = 0
-    main_window.is_batch_processing = True
 
     try:
         # 7. Processing Loop
-        for i, (media_path, file_type) in enumerate(media_files_to_process):
+        for media_path, file_type in media_files_to_process:
             # Update progress and check for cancellation
-            progress_dialog.setValue(i)
-            progress_dialog.setLabelText(f"Processing: {os.path.basename(media_path)}")
+            progress_dialog.setValue(processed_count + failed_count)
+            progress_dialog.setLabelText(os.path.basename(media_path))
             QtWidgets.QApplication.processEvents()  # Keep UI responsive
 
             if progress_dialog.confirmedCanceled():
@@ -3020,8 +3045,16 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                 ):
                     main_window.video_processor.stop_processing()
 
+            if not progress_dialog.confirmedCanceled():
+                progress_dialog.setValue(processed_count + failed_count)
+
     finally:
         main_window.is_batch_processing = False
+        main_window.batch_progress_dialog = None
+        main_window.batch_processing_button = None
+        batch_button.setText(original_button_text)
+        main_window.batchImageButton.setEnabled(original_batch_enabled)
+        main_window.batchallImageButton.setEnabled(original_batchall_enabled)
         # 8. Close the progress dialog
         progress_dialog.close_without_confirmation()
 
@@ -3039,6 +3072,8 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                 f"Failed to process: {failed_count}"
             )
 
+        result_msg += f"\n{progress_dialog.runtime_label.text()}"
+        progress_dialog.deleteLater()
         common_widget_actions.create_and_show_messagebox(
             main_window, "Batch Complete", result_msg, main_window
         )

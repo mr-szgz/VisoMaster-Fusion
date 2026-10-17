@@ -199,7 +199,7 @@ def test_progress_dialog_cancel_confirm_yes_marks_confirmed_cancel(
     dialog.show()
     _flush_qt_events(qapp)
 
-    dialog.canceled.emit()
+    dialog.findChild(QtWidgets.QPushButton).click()
     _flush_qt_events(qapp)
 
     assert len(_FakePromptBox.instances) == 1
@@ -226,9 +226,76 @@ def test_progress_dialog_cancel_confirm_no_restores_dialog(
     dialog.show()
     _flush_qt_events(qapp)
 
-    dialog.canceled.emit()
+    dialog.findChild(QtWidgets.QPushButton).click()
     _flush_qt_events(qapp)
 
     assert len(_FakePromptBox.instances) == 1
     assert dialog.confirmedCanceled() is False
     assert dialog.isVisible() is True
+
+
+@pytest.mark.qt
+def test_progress_dialog_keeps_one_batch_clock_across_items_and_minimize(
+    monkeypatch, progress_dialog_module, qapp
+):
+    clock = MagicMock(elapsed=MagicMock(return_value=0))
+    monkeypatch.setattr(progress_dialog_module.QtCore, "QElapsedTimer", lambda: clock)
+    parent = QtWidgets.QWidget()
+    parent.show()
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 4, parent)
+    assert dialog.runtime_timer.isActive()
+    assert dialog.runtime_timer.interval() == 1000
+    dialog.setWindowModality(QtCore.Qt.WindowModal)
+    dialog.setValue(1)
+    dialog.show()
+    _flush_qt_events(qapp)
+    assert qapp.activeModalWidget() is dialog
+
+    bar = dialog.findChild(QtWidgets.QProgressBar)
+    cancel_button = dialog.findChild(QtWidgets.QPushButton)
+    assert dialog.runtime_label.y() > bar.geometry().bottom()
+    assert not dialog.runtime_label.geometry().intersects(cancel_button.geometry())
+
+    dialog.showMinimized()
+    dialog.setValue(2)
+    dialog.setLabelText("second.png")
+    clock.elapsed.return_value = 3661000
+    dialog.runtime_timer.timeout.emit()
+    assert dialog.runtime_label.text() == "Batch runtime: 01:01:01"
+    _flush_qt_events(qapp)
+    assert not dialog.isVisible()
+    assert qapp.activeModalWidget() is None
+    assert not dialog.confirmedCanceled()
+
+    dialog.show()
+    _flush_qt_events(qapp)
+    assert dialog.isVisible()
+    assert dialog.value() == 2
+    assert qapp.activeModalWidget() is dialog
+    clock.elapsed.return_value = 3662000
+    dialog.close_without_confirmation()
+    clock.start.assert_called_once()
+    assert not dialog.runtime_timer.isActive()
+    assert dialog.runtime_label.text() == "Batch runtime: 01:01:02"
+    parent.close()
+
+
+@pytest.mark.qt
+@pytest.mark.parametrize("total_items", [None, 3])
+def test_progress_dialog_item_labels_use_completed_progress(
+    progress_dialog_module, qapp, total_items
+):
+    dialog = progress_dialog_module.ProgressDialog(
+        "Starting", "Cancel", 0, 3, total_items=total_items
+    )
+    assert dialog.labelText() == "Starting"
+    for completed in range(3):
+        dialog.setValue(completed)
+        dialog.setLabelText("image.png")
+        expected = (
+            f"Processing ({completed + 1}/3): image.png"
+            if total_items is not None
+            else "image.png"
+        )
+        assert dialog.labelText() == expected
+    dialog.close_without_confirmation()

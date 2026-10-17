@@ -2161,12 +2161,22 @@ class ProgressDialog(QtWidgets.QProgressDialog):
     - Batch code must check confirmedCanceled() instead of wasCanceled().
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, total_items: int | None = None, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.total_items = total_items
         self._confirmed_cancelled = False
         self._confirm_dialog_open = False
         self._confirmation_disabled = False
+
+        self.runtime_label = QtWidgets.QLabel("Batch runtime: 00:00:00", self)
+        self.runtime_label.adjustSize()
+        self.setMinimumWidth(self.sizeHint().width() + self.runtime_label.width())
+        self.runtime_clock = QtCore.QElapsedTimer()
+        self.runtime_clock.start()
+        self.runtime_timer = QtCore.QTimer(self)
+        self.runtime_timer.timeout.connect(self.update_runtime)
+        self.runtime_timer.start(1000)
 
         # Prevent Qt from auto-closing/resetting the dialog unexpectedly
         try:
@@ -2186,6 +2196,35 @@ class ProgressDialog(QtWidgets.QProgressDialog):
 
         # Intercept Qt's cancel flow via signal (this is reliable in PySide6)
         self.canceled.connect(self._on_canceled)
+        self.setWindowFlag(QtCore.Qt.WindowMinimizeButtonHint, True)
+
+    def update_runtime(self):
+        seconds = self.runtime_clock.elapsed() // 1000
+        hours, seconds = divmod(seconds, 3600)
+        minutes, seconds = divmod(seconds, 60)
+        self.runtime_label.setText(f"Batch runtime: {hours:02}:{minutes:02}:{seconds:02}")
+        self.runtime_label.adjustSize()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # QProgressDialog positions its children itself; use its existing button row.
+        bar = self.findChild(QtWidgets.QProgressBar)
+        cancel_button = self.findChild(QtWidgets.QPushButton)
+        self.runtime_label.move(
+            bar.x(), cancel_button.geometry().center().y() - self.runtime_label.height() // 2
+        )
+
+    def setLabelText(self, text):
+        if self.total_items is not None:
+            # The progress value counts finished items; the label names the next item.
+            text = f"Processing ({self.value() + 1}/{self.total_items}): {text}"
+        super().setLabelText(text)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QtCore.QEvent.WindowStateChange and self.isMinimized():
+            self.hide()
+            self.setWindowState(QtCore.Qt.WindowNoState)
 
     def confirmedCanceled(self) -> bool:
         """Return True only if the user confirmed stopping."""
@@ -2195,6 +2234,8 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         """
         Close the dialog for normal teardown without treating it as a user cancel.
         """
+        self.runtime_timer.stop()
+        self.update_runtime()
         self._confirmation_disabled = True
         blocker = None
         try:
