@@ -11,6 +11,7 @@ from PySide6.QtCore import QThread, Signal, Slot, QMetaObject, Qt, QEventLoop
 from PySide6 import QtWidgets
 from PySide6.QtWidgets import QMessageBox
 import numpy as np
+import cv2
 import threading
 import re
 import traceback  # Import traceback for error logging
@@ -129,20 +130,17 @@ def convert_markers_to_job_type(
 
 def save_job(
     main_window: "MainWindow",
-    job_name: str,
-    use_job_name_for_output: bool = True,
-    output_file_name: Optional[str] = None,
+    dialog: widget_components.SaveJobDialog,
 ):
     """
     Saves the current workspace as a job JSON file in the 'jobs' directory.
     This is a wrapper for save_job_workspace.
     """
+    job_name = dialog.job_name
     try:
         jobs_dir = get_jobs_dir(main_window)
         data_filename = str(jobs_dir / f"{job_name}")
-        save_job_workspace(
-            main_window, data_filename, use_job_name_for_output, output_file_name
-        )
+        save_job_workspace(main_window, data_filename, dialog=dialog)
         print(f"[INFO] Job saved: {data_filename}.json")
         common_widget_actions.create_and_show_toast_message(
             main_window, "Job Saved", f"Job '{job_name}' has been saved."
@@ -163,12 +161,12 @@ def list_jobs(main_window: "MainWindow") -> list[str]:
     return [f.stem for f in jobs_dir.glob("*.json")]
 
 
-def delete_job(main_window: "MainWindow") -> bool:
+def delete_job(main_window: "MainWindow", job_names: list[str] | None = None) -> bool:
     """
     Moves the selected job(s) from the 'jobs' directory to the system trash
     after user confirmation.
     """
-    selected_jobs = get_selected_jobs(main_window)
+    selected_jobs = get_selected_jobs(main_window) if job_names is None else job_names
     if not selected_jobs:
         QMessageBox.warning(
             main_window, "No Job Selected", "Please select one or more jobs to delete."
@@ -1319,9 +1317,8 @@ def _serialize_job_data(main_window: "MainWindow") -> dict:
 def save_job_workspace(
     main_window: "MainWindow",
     job_name_path: str,
-    use_job_name_for_output: bool = True,
-    output_file_name: Optional[str] = None,
     target_media: Optional[widget_components.TargetMediaCardButton] = None,
+    dialog: Optional[widget_components.SaveJobDialog] = None,
 ):
     """
     Main function to save the current workspace to a job file.
@@ -1339,10 +1336,16 @@ def save_job_workspace(
         workspace_data["selected_media_id"] = target_media.media_id
 
     # Add job-specific output settings
-    workspace_data["use_job_name_for_output"] = use_job_name_for_output
-    workspace_data["output_file_name"] = (
-        output_file_name if not use_job_name_for_output else None
-    )
+    if dialog is None:
+        workspace_data["use_job_name_for_output"] = True
+        workspace_data["output_file_name"] = None
+        workspace_data["restore_selected_face"] = main_window.control[
+            "ClusterOutputBySourceToggle"
+        ]
+    else:
+        workspace_data["use_job_name_for_output"] = dialog.use_job_name_for_output
+        workspace_data["output_file_name"] = dialog.output_file_name
+        workspace_data["restore_selected_face"] = dialog.restore_selected_face
 
     # Write data to JSON file
     with open(data_filename, "w") as data_file:
@@ -1467,6 +1470,7 @@ def save_default_job(
         job_path = jobs_dir / f"{job_name}_{suffix}"
         suffix += 1
     save_job_workspace(main_window, str(job_path), target_media=target_media)
+    return job_path.name
 
 
 def prompt_job_name(main_window: "MainWindow"):
@@ -1562,8 +1566,55 @@ def prompt_job_name(main_window: "MainWindow"):
                 return
 
         # Save the job and refresh the list
-        save_job(main_window, job_name, use_job_name_for_output, output_file_name)
-        refresh_job_list(main_window)
+        save_job(main_window, dialog)
+        refresh_job_list(main_window, selected_job_name=job_name)
+
+
+def show_job_context_menu(main_window: "MainWindow", position):
+    job_list = main_window.jobQueueList
+    item = job_list.itemAt(position)
+    if item is None:
+        return
+
+    job_name = item.data(Qt.ItemDataRole.UserRole)
+    menu = QtWidgets.QMenu(job_list)
+    edit_action = menu.addAction("Edit Job…")
+    delete_action = menu.addAction("Delete Job")
+    running = _is_job_processor_running(main_window)
+    edit_action.setEnabled(not running)
+    delete_action.setEnabled(not running)
+    selected_action = menu.exec(job_list.viewport().mapToGlobal(position))
+    menu.deleteLater()
+    if selected_action == edit_action:
+        edit_job(main_window, job_name)
+    elif selected_action == delete_action:
+        delete_job(main_window, [job_name])
+
+
+def edit_job(main_window: "MainWindow", job_name: str):
+    """Edit saved job metadata without serializing the current workspace."""
+    job_path = get_jobs_dir(main_window) / f"{job_name}.json"
+    with job_path.open("r", encoding="utf-8") as job_file:
+        job_data = json.load(job_file)
+
+    dialog = widget_components.SaveJobDialog(main_window, job_name, job_data=job_data)
+    if dialog.exec() != QtWidgets.QDialog.Accepted:
+        return
+
+    updated_name = dialog.job_name
+    job_data["use_job_name_for_output"] = dialog.use_job_name_for_output
+    job_data["output_file_name"] = dialog.output_file_name
+    job_data["restore_selected_face"] = dialog.restore_selected_face
+    if updated_name != job_name:
+        job_path = job_path.rename(job_path.parent / f"{updated_name}.json")
+    with job_path.open("r+", encoding="utf-8") as job_file:
+        json.dump(job_data, job_file, indent=4)
+        job_file.truncate()
+
+    refresh_job_list(main_window, selected_job_name=updated_name)
+    common_widget_actions.create_and_show_toast_message(
+        main_window, "Job Updated", f"Job '{updated_name}' has been updated."
+    )
 
 
 def connect_job_manager_signals(main_window: "MainWindow"):
@@ -1589,24 +1640,87 @@ def connect_job_manager_signals(main_window: "MainWindow"):
             lambda: refresh_job_list(main_window)
         )
     if main_window.jobQueueList:
+        main_window.jobQueueList.setContextMenuPolicy(Qt.CustomContextMenu)
+        main_window.jobQueueList.customContextMenuRequested.connect(
+            partial(show_job_context_menu, main_window)
+        )
         main_window.jobQueueList.itemSelectionChanged.connect(
             lambda: update_job_manager_buttons(main_window)
         )
 
 
-def refresh_job_list(main_window: "MainWindow"):
+def refresh_job_list(main_window: "MainWindow", selected_job_name: str | None = None):
     """Updates the job queue list widget with the latest job files."""
     if main_window.jobQueueList:
         main_window.jobQueueList.clear()
         job_names = list_jobs(main_window)
-        main_window.jobQueueList.addItems(job_names)
+        jobs_dir = get_jobs_dir(main_window)
+        for job_name in job_names:
+            with (jobs_dir / f"{job_name}.json").open(
+                "r", encoding="utf-8"
+            ) as job_file:
+                job_data = json.load(job_file)
+            embedding_ids = dict.fromkeys(
+                embedding_id
+                for target_face in job_data["target_faces_data"].values()
+                for embedding_id in target_face["assigned_merged_embeddings"]
+            )
+            embedding_names = [
+                job_data["embeddings_data"][embedding_id]["embedding_name"]
+                for embedding_id in embedding_ids
+            ]
+            if embedding_names:
+                label = f"{job_name} ({', '.join(embedding_names)})"
+            else:
+                label = job_name
+            target_media = next(
+                media
+                for media in job_data["target_medias_data"]
+                if media["media_id"] == job_data["selected_media_id"]
+            )
+            media_path = target_media["media_path"]
+            media_type = misc_helpers.get_file_type(media_path)
+            tooltip = f"Saved job {media_type}"
+            if media_type == "video":
+                capture = cv2.VideoCapture()
+                capture.setExceptionMode(True)
+                capture.open(media_path)
+                total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+                frame_rate = capture.get(cv2.CAP_PROP_FPS)
+                capture.release()
+                if frame_rate > 0:
+                    duration_seconds = int(total_frames / frame_rate)
+                    hours, remainder = divmod(duration_seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    label += f" ({hours:02d}:{minutes:02d}:{seconds:02d})"
+                    tooltip += f" ({hours:02d}:{minutes:02d}:{seconds:02d})"
+            if embedding_names:
+                names = ", ".join(f"`{name}`" for name in embedding_names)
+                name_label = "embed name" if len(embedding_names) == 1 else "embed names"
+                tooltip += f" with {names} {name_label}"
+            else:
+                tooltip += " with no assigned embeddings"
+            item = QtWidgets.QListWidgetItem(label)
+            item.setToolTip(tooltip)
+            item.setData(Qt.ItemDataRole.UserRole, job_name)
+            main_window.jobQueueList.addItem(item)
         update_job_manager_buttons(main_window)
+        if selected_job_name is not None:
+            job_list = main_window.jobQueueList
+            for row in range(job_list.count()):
+                item = job_list.item(row)
+                if item.data(Qt.ItemDataRole.UserRole) == selected_job_name:
+                    job_list.setCurrentItem(item)
+                    job_list.scrollToItem(
+                        item, QtWidgets.QAbstractItemView.ScrollHint.EnsureVisible
+                    )
+                    break
 
 
 def get_selected_jobs(main_window: "MainWindow") -> list[str]:
     """Returns a list of selected job names from the job list widget."""
     selected_items = main_window.jobQueueList.selectedItems()
-    return [item.text() for item in selected_items] if selected_items else []
+    return [item.data(Qt.ItemDataRole.UserRole) for item in selected_items]
 
 
 # --- Job Processing Slots ---
@@ -1723,21 +1837,15 @@ def load_job_settings(main_window: "MainWindow", job_data: dict):
         _load_job_target_faces_and_params(main_window, job_data)
 
         # Restore the selected face used to resolve the output embedding subfolder.
-        if main_window.target_faces:
-            saved_face_id = job_data.get("selected_target_face_id")
-            selected_face_id = (
-                saved_face_id
-                if saved_face_id in main_window.target_faces
-                else next(iter(main_window.target_faces))
-            )
+        main_window.selected_target_face_id = None
+        main_window.cur_selected_target_face_button = None
+        selected_face_id = job_data["selected_target_face_id"]
+        if job_data["restore_selected_face"] and selected_face_id is not None:
             main_window.selected_target_face_id = selected_face_id
             selected_face_button = main_window.target_faces.get(selected_face_id)
             main_window.cur_selected_target_face_button = selected_face_button
             if selected_face_button is not None:
                 selected_face_button.setChecked(True)
-        else:
-            main_window.selected_target_face_id = None
-            main_window.cur_selected_target_face_button = None
 
         # 3. Load controls/state.
         _load_job_controls_and_state(main_window, job_data, is_batch_load=True)

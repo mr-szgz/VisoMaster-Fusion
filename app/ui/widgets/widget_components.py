@@ -2391,9 +2391,25 @@ class JobLoadingDialog(QtWidgets.QDialog):
 
 
 class SaveJobDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None, input_filename=""):
+    def __init__(self, parent=None, input_filename="", job_data=None):
         super().__init__(parent)
-        self.setWindowTitle("Save Job")
+        if job_data is None:
+            target_media_path = parent.selected_video_button.media_path
+            use_job_name_for_output = True
+            output_name = input_filename
+            restore_selected_face = parent.control["ClusterOutputBySourceToggle"]
+            self.setWindowTitle("Save Job")
+        else:
+            target_media = next(
+                media
+                for media in job_data["target_medias_data"]
+                if media["media_id"] == job_data["selected_media_id"]
+            )
+            target_media_path = target_media["media_path"]
+            use_job_name_for_output = job_data["use_job_name_for_output"]
+            output_name = job_data["output_file_name"]
+            restore_selected_face = job_data["restore_selected_face"]
+            self.setWindowTitle("Edit Job")
         self.setWindowIcon(QtGui.QIcon(":/media/media/visomaster_small.png"))
 
         # Widgets
@@ -2405,16 +2421,48 @@ class SaveJobDialog(QtWidgets.QDialog):
         self.set_output_name_checkbox = QtWidgets.QCheckBox(
             "Use job name for output file name", self
         )
-        self.set_output_name_checkbox.setChecked(True)
+        self.set_output_name_checkbox.setChecked(use_job_name_for_output)
+
+        self.restore_selected_face_checkbox = QtWidgets.QCheckBox(
+            "Follow source-name clustering for this job", self
+        )
+        self.restore_selected_face_checkbox.setChecked(restore_selected_face)
+
+        if misc_helpers.get_file_type(target_media_path) == "image":
+            report = [("Frames:", "1")]
+        else:
+            capture = cv2.VideoCapture()
+            capture.setExceptionMode(True)
+            capture.open(str(target_media_path))
+            total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+            frame_rate = capture.get(cv2.CAP_PROP_FPS)
+            capture.release()
+            report = [("Frames:", f"{total_frames:,}")]
+            if frame_rate > 0:
+                hours, remainder = divmod(int(total_frames / frame_rate), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                report.extend([
+                    ("Frame rate:", f"{frame_rate:g} fps"),
+                    ("Length:", f"{hours:02d}:{minutes:02d}:{seconds:02d}"),
+                ])
+        self.media_report_layout = QtWidgets.QGridLayout()
+        self.media_report_layout.setColumnStretch(1, 1)
+        for row, (field, value) in enumerate(report):
+            self.media_report_layout.addWidget(QtWidgets.QLabel(field, self), row, 0)
+            value_label = QtWidgets.QLabel(value, self)
+            value_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+            self.media_report_layout.addWidget(value_label, row, 1)
 
         self.output_name_label = QtWidgets.QLabel("Output File Name:")
         self.output_name_edit = QtWidgets.QLineEdit(self)
         # self.output_name_edit.setPlaceholderText("Leave blank for default")
-        self.output_name_edit.setText(input_filename)
+        self.output_name_edit.setText("" if output_name is None else output_name)
 
         # Button box
         QBtn = QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
         self.buttonBox = QtWidgets.QDialogButtonBox(QBtn)
+        if job_data is not None:
+            self.buttonBox.button(QtWidgets.QDialogButtonBox.Ok).setText("Save Changes")
         self.buttonBox.accepted.connect(self.accept)
         self.buttonBox.rejected.connect(self.reject)
 
@@ -2423,8 +2471,20 @@ class SaveJobDialog(QtWidgets.QDialog):
         layout.addWidget(self.job_name_label)
         layout.addWidget(self.job_name_edit)
         layout.addWidget(self.set_output_name_checkbox)
+        layout.addWidget(self.restore_selected_face_checkbox)
         layout.addWidget(self.output_name_label)
         layout.addWidget(self.output_name_edit)
+        layout.addSpacing(8)
+        report_top_line = QtWidgets.QFrame(self)
+        report_top_line.setFrameShape(QtWidgets.QFrame.HLine)
+        layout.addWidget(report_top_line)
+        layout.addSpacing(4)
+        layout.addLayout(self.media_report_layout)
+        layout.addSpacing(4)
+        report_bottom_line = QtWidgets.QFrame(self)
+        report_bottom_line.setFrameShape(QtWidgets.QFrame.HLine)
+        layout.addWidget(report_bottom_line)
+        layout.addSpacing(8)
         layout.addWidget(self.buttonBox)
         self.setLayout(layout)
 
@@ -2448,6 +2508,10 @@ class SaveJobDialog(QtWidgets.QDialog):
     @property
     def use_job_name_for_output(self):
         return self.set_output_name_checkbox.isChecked()
+
+    @property
+    def restore_selected_face(self):
+        return self.restore_selected_face_checkbox.isChecked()
 
     @property
     def output_file_name(self):

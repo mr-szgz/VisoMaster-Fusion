@@ -640,311 +640,342 @@
          <property name="checkable">
           <bool>false</bool>
          </property>
-         <layout class="QGridLayout" name="gridLayout_2">
-          <item row="1" column="0">
-           <widget class="QWidget" name="facesButtonsWidget" native="true">
-            <property name="sizePolicy">
-             <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
-              <horstretch>0</horstretch>
-              <verstretch>0</verstretch>
-             </sizepolicy>
-            </property>
-            <layout class="QVBoxLayout" name="verticalLayout_8">
-             <property name="spacing">
-              <number>0</number>
-             </property>
-             <property name="leftMargin">
-              <number>0</number>
-             </property>
-             <property name="topMargin">
-              <number>0</number>
-             </property>
-             <property name="rightMargin">
-              <number>0</number>
-             </property>
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
-             <item>
-              <widget class="QWidget" name="verticalWidget" native="true">
-               <layout class="QVBoxLayout" name="controlButtonsLayout">
-                <property name="spacing">
-                 <number>8</number>
+         <widget class="QWidget" name="facesButtonsWidget" native="true">
+          <property name="geometry">
+           <rect>
+            <x>11</x>
+            <y>117</y>
+            <width>100</width>
+            <height>144</height>
+           </rect>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_8">
+           <property name="spacing">
+            <number>0</number>
+           </property>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <item>
+            <widget class="QWidget" name="verticalWidget" native="true">
+             <layout class="QVBoxLayout" name="controlButtonsLayout">
+              <property name="spacing">
+               <number>8</number>
+              </property>
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>4</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>4</number>
+              </property>
+              <item>
+               <widget class="QPushButton" name="findTargetFacesButton">
+                <property name="minimumSize">
+                 <size>
+                  <width>100</width>
+                  <height>0</height>
+                 </size>
                 </property>
-                <property name="leftMargin">
-                 <number>0</number>
+                <property name="text">
+                 <string>Find Faces</string>
                 </property>
-                <property name="topMargin">
-                 <number>4</number>
+                <property name="checkable">
+                 <bool>false</bool>
                 </property>
-                <property name="rightMargin">
-                 <number>0</number>
+                <property name="flat">
+                 <bool>true</bool>
                 </property>
-                <property name="bottomMargin">
-                 <number>4</number>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="clearTargetFacesButton">
+                <property name="text">
+                 <string>Clear Faces</string>
                 </property>
-                <item>
-                 <widget class="QPushButton" name="findTargetFacesButton">
-                  <property name="minimumSize">
-                   <size>
-                    <width>100</width>
-                    <height>0</height>
-                   </size>
-                  </property>
-                  <property name="text">
-                   <string>Find Faces</string>
-                  </property>
-                  <property name="checkable">
-                   <bool>false</bool>
-                  </property>
-                  <property name="flat">
-                   <bool>true</bool>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QPushButton" name="clearTargetFacesButton">
-                  <property name="text">
-                   <string>Clear Faces</string>
-                  </property>
-                  <property name="checkable">
-                   <bool>false</bool>
-                  </property>
-                  <property name="flat">
-                   <bool>true</bool>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QPushButton" name="swapfacesButton">
-                  <property name="text">
-                   <string>Swap Faces</string>
-                  </property>
-                  <property name="checkable">
-                   <bool>true</bool>
-                  </property>
-                  <property name="flat">
-                   <bool>true</bool>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QPushButton" name="editFacesButton">
-                  <property name="text">
-                   <string>Edit Faces</string>
-                  </property>
-                  <property name="checkable">
-                   <bool>true</bool>
-                  </property>
-                  <property name="default">
-                   <bool>false</bool>
-                  </property>
-                  <property name="flat">
-                   <bool>true</bool>
-                  </property>
-                 </widget>
-                </item>
-               </layout>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </item>
-          <item row="1" column="2">
-           <widget class="QListWidget" name="inputEmbeddingsList">
-            <property name="sizePolicy">
-             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-              <horstretch>4</horstretch>
-              <verstretch>0</verstretch>
-             </sizepolicy>
-            </property>
-            <property name="minimumSize">
-             <size>
-              <width>320</width>
-              <height>120</height>
-             </size>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>16777215</width>
-              <height>120</height>
-             </size>
-            </property>
-            <property name="toolTip">
-             <string>Saved Embedding</string>
-            </property>
-            <property name="verticalScrollBarPolicy">
-             <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
-            </property>
-            <property name="horizontalScrollBarPolicy">
-             <enum>Qt::ScrollBarPolicy::ScrollBarAsNeeded</enum>
-            </property>
-            <property name="autoScroll">
-             <bool>false</bool>
-            </property>
-            <property name="movement">
-             <enum>QListView::Movement::Static</enum>
-            </property>
-            <property name="layoutMode">
-             <enum>QListView::LayoutMode::Batched</enum>
-            </property>
-            <property name="spacing">
-             <number>4</number>
-            </property>
-            <property name="viewMode">
-             <enum>QListView::ViewMode::IconMode</enum>
-            </property>
-            <property name="uniformItemSizes">
-             <bool>true</bool>
-            </property>
-            <property name="wrapping" stdset="0">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="0">
-           <layout class="QHBoxLayout" name="horizontalLayout_4">
-            <item>
-             <widget class="QPushButton" name="saveImageButton">
-              <property name="text">
-               <string>Save Image</string>
-              </property>
-              <property name="flat">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item row="0" column="1">
-           <layout class="QHBoxLayout" name="batchLayout_1">
-            <item>
-             <widget class="QPushButton" name="batchImageButton">
-              <property name="toolTip">
-               <string>Processes the currently selected face across the entire target video or image.</string>
-              </property>
-              <property name="text">
-               <string>Batch Process Selected Face
-(For Videos and Images)</string>
-              </property>
-              <property name="flat">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="batchSaveJobsButton">
-              <property name="text">
-               <string>Batch Save Jobs
-(For Videos and Images)</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="batchallImageButton">
-              <property name="toolTip">
-               <string>Processes all found faces. This feature is only available for target images, not videos.</string>
-              </property>
-              <property name="text">
-               <string>Batch Process All Faces
-(For Images only)</string>
-              </property>
-              <property name="flat">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item row="0" column="2">
-           <layout class="QHBoxLayout" name="horizontalLayout_3">
-            <item>
-             <widget class="QLineEdit" name="inputEmbeddingsSearchBox">
-              <property name="placeholderText">
-               <string>Search Embeddings</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="openEditorButton">
-              <property name="toolTip">
-               <string>Open Embedding Editor</string>
-              </property>
-              <property name="text">
-               <string>Embedding Editor</string>
-              </property>
-              <property name="checkable">
-               <bool>false</bool>
-              </property>
-              <property name="flat">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="openEmbeddingButton">
-              <property name="toolTip">
-               <string>Open Embedding File</string>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset resource="media.qrc">
-                <normaloff>:/media/media/open_file.png</normaloff>:/media/media/open_file.png</iconset>
-              </property>
-              <property name="flat">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="saveEmbeddingButton">
-              <property name="toolTip">
-               <string>Save all embeddings to the current file</string>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset resource="media.qrc">
-                <normaloff>:/media/media/save_file.png</normaloff>:/media/media/save_file.png</iconset>
-              </property>
-              <property name="flat">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="saveEmbeddingAsButton">
-              <property name="toolTip">
-               <string>Save Embedding As</string>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset resource="media.qrc">
-                <normaloff>:/media/media/save_file_as.png</normaloff>:/media/media/save_file_as.png</iconset>
-              </property>
-              <property name="flat">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item row="1" column="1">
-           <widget class="QListWidget" name="targetFacesList">
-            <property name="autoFillBackground">
-             <bool>true</bool>
-            </property>
-            <property name="autoScroll">
-             <bool>false</bool>
-            </property>
-           </widget>
-          </item>
-         </layout>
+                <property name="checkable">
+                 <bool>false</bool>
+                </property>
+                <property name="flat">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="swapfacesButton">
+                <property name="text">
+                 <string>Swap Faces</string>
+                </property>
+                <property name="checkable">
+                 <bool>true</bool>
+                </property>
+                <property name="flat">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="editFacesButton">
+                <property name="text">
+                 <string>Edit Faces</string>
+                </property>
+                <property name="checkable">
+                 <bool>true</bool>
+                </property>
+                <property name="default">
+                 <bool>false</bool>
+                </property>
+                <property name="flat">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QListWidget" name="inputEmbeddingsList">
+          <property name="geometry">
+           <rect>
+            <x>463</x>
+            <y>153</y>
+            <width>473</width>
+            <height>120</height>
+           </rect>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+            <horstretch>4</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>320</width>
+            <height>120</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>16777215</width>
+            <height>120</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Saved Embedding</string>
+          </property>
+          <property name="verticalScrollBarPolicy">
+           <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+          </property>
+          <property name="horizontalScrollBarPolicy">
+           <enum>Qt::ScrollBarPolicy::ScrollBarAsNeeded</enum>
+          </property>
+          <property name="autoScroll">
+           <bool>false</bool>
+          </property>
+          <property name="movement">
+           <enum>QListView::Movement::Static</enum>
+          </property>
+          <property name="layoutMode">
+           <enum>QListView::LayoutMode::Batched</enum>
+          </property>
+          <property name="spacing">
+           <number>4</number>
+          </property>
+          <property name="viewMode">
+           <enum>QListView::ViewMode::IconMode</enum>
+          </property>
+          <property name="uniformItemSizes">
+           <bool>true</bool>
+          </property>
+          <property name="wrapping" stdset="0">
+           <bool>true</bool>
+          </property>
+         </widget>
+         <widget class="QListWidget" name="targetFacesList">
+          <property name="geometry">
+           <rect>
+            <x>117</x>
+            <y>117</y>
+            <width>256</width>
+            <height>192</height>
+           </rect>
+          </property>
+          <property name="autoFillBackground">
+           <bool>true</bool>
+          </property>
+          <property name="autoScroll">
+           <bool>false</bool>
+          </property>
+         </widget>
+         <widget class="QWidget" name="layoutWidget">
+          <property name="geometry">
+           <rect>
+            <x>0</x>
+            <y>0</y>
+            <width>363</width>
+            <height>30</height>
+           </rect>
+          </property>
+          <layout class="QHBoxLayout" name="horizontalLayout_3">
+           <item>
+            <widget class="QLineEdit" name="inputEmbeddingsSearchBox">
+             <property name="placeholderText">
+              <string>Search Embeddings</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="openEditorButton">
+             <property name="toolTip">
+              <string>Open Embedding Editor</string>
+             </property>
+             <property name="text">
+              <string>Embedding Editor</string>
+             </property>
+             <property name="checkable">
+              <bool>false</bool>
+             </property>
+             <property name="flat">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="openEmbeddingButton">
+             <property name="toolTip">
+              <string>Open Embedding File</string>
+             </property>
+             <property name="text">
+              <string/>
+             </property>
+             <property name="icon">
+              <iconset resource="media.qrc">
+               <normaloff>:/media/media/open_file.png</normaloff>:/media/media/open_file.png</iconset>
+             </property>
+             <property name="flat">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="saveEmbeddingButton">
+             <property name="toolTip">
+              <string>Save all embeddings to the current file</string>
+             </property>
+             <property name="text">
+              <string/>
+             </property>
+             <property name="icon">
+              <iconset resource="media.qrc">
+               <normaloff>:/media/media/save_file.png</normaloff>:/media/media/save_file.png</iconset>
+             </property>
+             <property name="flat">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="saveEmbeddingAsButton">
+             <property name="toolTip">
+              <string>Save Embedding As</string>
+             </property>
+             <property name="text">
+              <string/>
+             </property>
+             <property name="icon">
+              <iconset resource="media.qrc">
+               <normaloff>:/media/media/save_file_as.png</normaloff>:/media/media/save_file_as.png</iconset>
+             </property>
+             <property name="flat">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="layoutWidget">
+          <property name="geometry">
+           <rect>
+            <x>120</x>
+            <y>10</y>
+            <width>315</width>
+            <height>64</height>
+           </rect>
+          </property>
+          <layout class="QGridLayout" name="gridLayout">
+           <property name="sizeConstraint">
+            <enum>QLayout::SizeConstraint::SetMinimumSize</enum>
+           </property>
+           <item row="0" column="0">
+            <widget class="QPushButton" name="saveImageButton">
+             <property name="text">
+              <string>Save Image</string>
+             </property>
+             <property name="flat">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QPushButton" name="batchImageButton">
+             <property name="toolTip">
+              <string>Processes the currently selected face across the entire target video or image.</string>
+             </property>
+             <property name="text">
+              <string>Batch Process All Target Media</string>
+             </property>
+             <property name="flat">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QPushButton" name="batchSaveJobsButton">
+             <property name="toolTip">
+              <string>Saves new jobs with the currently selected face and parameters against all target video and images</string>
+             </property>
+             <property name="text">
+              <string>Batch Save Jobs</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QPushButton" name="batchallImageButton">
+             <property name="toolTip">
+              <string>Processes all found faces. This feature is only available for target images, not videos.</string>
+             </property>
+             <property name="text">
+              <string>Batch Process All Faces (Images)</string>
+             </property>
+             <property name="flat">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
         </widget>
        </item>
       </layout>
@@ -1420,7 +1451,7 @@
    <property name="minimumSize">
     <size>
      <width>382</width>
-     <height>248</height>
+     <height>259</height>
     </size>
    </property>
    <property name="features">
@@ -1471,6 +1502,14 @@
        <property name="sortingEnabled">
         <bool>true</bool>
        </property>
+       <item>
+        <property name="text">
+         <string>JobFilename_sample (MyEmbedding_name_) (00:13:24)</string>
+        </property>
+        <property name="toolTip">
+         <string>Saved job video (HH:MM:SS) with `embedding_name` embed name</string>
+        </property>
+       </item>
       </widget>
      </item>
      <item>

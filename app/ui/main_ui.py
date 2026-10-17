@@ -990,6 +990,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         super(MainWindow, self).__init__()
         self.gpu_id = gpu_id
         self.setupUi(self)
+        self.jobQueueList.clear()
         self._base_window_title = self.windowTitle()
         self.initialize_variables()
         self._apply_runtime_window_title()

@@ -14,6 +14,7 @@ All PySide6, Qt, send2trash, and UI imports are stubbed.
 from __future__ import annotations
 
 import sys
+import ast
 import copy
 import json
 from types import SimpleNamespace
@@ -74,8 +75,9 @@ from app.helpers.miscellaneous import ParametersDict  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("cluster_enabled", [True, False])
 def test_save_default_jobs_preserve_configuration_and_use_distinct_media(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, cluster_enabled
 ):
     from app.ui.widgets.actions import job_manager_actions
 
@@ -89,7 +91,10 @@ def test_save_default_jobs_preserve_configuration_and_use_distinct_media(
     monkeypatch.setattr(
         job_manager_actions, "_serialize_job_data", lambda mw: copy.deepcopy(workspace)
     )
-    main_window = SimpleNamespace(project_root_path=tmp_path)
+    main_window = SimpleNamespace(
+        project_root_path=tmp_path,
+        control={"ClusterOutputBySourceToggle": cluster_enabled},
+    )
     jobs_dir = job_manager_actions.get_jobs_dir(main_window)
     existing_job = jobs_dir / "sample.json"
     existing_job.write_text("existing job", encoding="utf-8")
@@ -99,7 +104,8 @@ def test_save_default_jobs_preserve_configuration_and_use_distinct_media(
     ]
 
     for media in media_items:
-        job_manager_actions.save_default_job(main_window, media)
+        saved_name = job_manager_actions.save_default_job(main_window, media)
+        assert (jobs_dir / f"{saved_name}.json").is_file()
 
     assert existing_job.read_text(encoding="utf-8") == "existing job"
     for suffix, media in enumerate(media_items, 1):
@@ -112,7 +118,44 @@ def test_save_default_jobs_preserve_configuration_and_use_distinct_media(
             assert data[key] == workspace[key]
         assert data["use_job_name_for_output"] is True
         assert data["output_file_name"] is None
+        assert data["restore_selected_face"] is cluster_enabled
     assert workspace["selected_media_id"] == "original"
+
+
+@pytest.mark.parametrize("restore_face", [True, False])
+@pytest.mark.parametrize("use_job_name", [True, False])
+def test_save_job_reads_dialog_overrides_in_save_layer(
+    monkeypatch, tmp_path, restore_face, use_job_name
+):
+    from app.ui.widgets.actions import job_manager_actions as actions
+
+    workspace = {
+        "selected_media_id": "saved",
+        "target_medias_data": [{"media_id": "saved", "media_path": "saved.mp4"}],
+        "control": {"ClusterOutputBySourceToggle": not restore_face},
+    }
+    mw = SimpleNamespace(
+        project_root_path=tmp_path,
+        control={"ClusterOutputBySourceToggle": not restore_face},
+    )
+    monkeypatch.setattr(actions, "_serialize_job_data", lambda mw: copy.deepcopy(workspace))
+    dialog = SimpleNamespace(
+        job_name="Saved job",
+        use_job_name_for_output=use_job_name,
+        output_file_name=None if use_job_name else "Custom output",
+        restore_selected_face=restore_face,
+    )
+
+    actions.save_job(mw, dialog)
+
+    saved = json.loads((tmp_path / "jobs" / "Saved job.json").read_text())
+    assert saved == {
+        **workspace,
+        "use_job_name_for_output": use_job_name,
+        "output_file_name": dialog.output_file_name,
+        "restore_selected_face": restore_face,
+    }
+    assert mw.control["ClusterOutputBySourceToggle"] is not restore_face
 
 
 def test_save_default_job_propagates_write_failure(monkeypatch, tmp_path):
@@ -122,7 +165,7 @@ def test_save_default_job_propagates_write_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(job_manager_actions, "save_job_workspace", writer)
     with pytest.raises(OSError, match="write failed"):
         job_manager_actions.save_default_job(
-            SimpleNamespace(project_root_path=tmp_path),
+            SimpleNamespace(project_root_path=tmp_path, control={"ClusterOutputBySourceToggle": True}),
             SimpleNamespace(media_id="image", media_path="photo.png"),
         )
 

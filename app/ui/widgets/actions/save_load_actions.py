@@ -1724,6 +1724,7 @@ def save_current_job(main_window: "MainWindow"):
     job_data = {
         "job_name": job_name,
         "use_job_name_for_output": use_job_name,
+        "restore_selected_face": dialog.restore_selected_face,
         "output_file_name": output_filename,
         "target_media_path": main_window.selected_video_button.media_path
         if isinstance(

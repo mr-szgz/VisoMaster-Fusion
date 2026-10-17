@@ -1339,6 +1339,7 @@ def test_batch_save_jobs_includes_images_and_videos_without_processing(
     from app.ui.widgets import actions
 
     job_actions = MagicMock()
+    job_actions.save_default_job.side_effect = ["photo", "clip_1"]
     monkeypatch.setattr(actions, "job_manager_actions", job_actions, raising=False)
     image = SimpleNamespace(file_type="image", media_path="photo.png")
     video = SimpleNamespace(file_type="video", media_path="clip.mp4")
@@ -1352,7 +1353,9 @@ def test_batch_save_jobs_includes_images_and_videos_without_processing(
         image,
         video,
     ]
-    job_actions.refresh_job_list.assert_called_once_with(main_window)
+    job_actions.refresh_job_list.assert_called_once_with(
+        main_window, selected_job_name="clip_1"
+    )
     assert vars(main_window.video_processor) == original_state
     main_window.video_processor.process_current_frame.assert_not_called()
 
