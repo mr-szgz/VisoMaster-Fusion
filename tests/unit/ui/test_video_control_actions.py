@@ -40,6 +40,9 @@ def video_actions_env():
         "app.ui.widgets.actions.card_actions": _stub(
             "app.ui.widgets.actions.card_actions"
         ),
+        "app.ui.widgets.actions.job_manager_actions": _stub(
+            "app.ui.widgets.actions.job_manager_actions"
+        ),
         "app.ui.widgets.actions.graphics_view_actions": _stub(
             "app.ui.widgets.actions.graphics_view_actions"
         ),
@@ -1196,6 +1199,9 @@ class _FakeProgressDialog:
         self.stop_after_completion_checkbox = MagicMock(
             isChecked=MagicMock(return_value=False)
         )
+        self.save_skipped_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
+        self.save_partial_on_skip_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
+        self.clear_skipped_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self._app = QApplication.instance() or QApplication([])
         self.skip_button = QPushButton("Skip")
         self.skip_button.clicked.connect(lambda: setattr(self, "skip_requested", True))
@@ -1640,9 +1646,26 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
 
 @pytest.mark.parametrize("save_on_stop", [False, True])
 @pytest.mark.parametrize("skip", [False, True])
+@pytest.mark.parametrize("save_skipped", [False, True])
+@pytest.mark.parametrize("save_partial", [False, True])
+@pytest.mark.parametrize("clear_skipped", [False, True])
 def test_process_batch_images_stop_or_cancel_video_ends_batch(
-    monkeypatch, video_actions_env, save_on_stop, skip
+    monkeypatch, video_actions_env, save_on_stop, skip, save_skipped, save_partial, clear_skipped
 ):
+    from app.ui.widgets.actions import job_manager_actions
+
+    saved_media = []
+    def save_skipped_job(mw, media):
+        assert not mw.video_processor.processing
+        if save_partial:
+            assert mw.video_processor._finalize_default_style_recording.call_count == len(saved_media) + 1
+        assert mw.video_processor.media_path == media.media_path
+        assert media.media_id in mw.target_videos
+        saved_media.append(media.media_path)
+
+    monkeypatch.setattr(job_manager_actions, "save_default_job", save_skipped_job)
+    refresh_jobs = MagicMock()
+    monkeypatch.setattr(job_manager_actions, "refresh_job_list", refresh_jobs)
     _FakeProgressDialog.instances = []
     main_window = _make_batch_main_window(
         _FakeBatchMediaWidget("video", "E:/media/video_1.mp4"),
@@ -1724,6 +1747,9 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
         if skip:
             dialog = _FakeProgressDialog.instances[-1]
             assert not dialog.skip_requested
+            dialog.save_skipped_checkbox.isChecked.return_value = save_skipped
+            dialog.save_partial_on_skip_checkbox.isChecked.return_value = save_partial
+            dialog.clear_skipped_checkbox.isChecked.return_value = clear_skipped
             dialog.remove_completed_checkbox.isChecked.return_value = True
             dialog.stop_after_completion_checkbox.isChecked.return_value = True
             dialog.skip_button.click()
@@ -1743,9 +1769,12 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
 
     if skip:
         assert record_video.call_count == 2
-        assert main_window.video_processor.stop_processing.call_count == 2
-        main_window.video_processor._finalize_default_style_recording.assert_not_called()
-        assert main_window.targetVideosList.count() == 2
+        assert saved_media == (["E:/media/video_1.mp4", "E:/media/video_2.mp4"] if save_skipped else [])
+        assert refresh_jobs.call_count == (2 if save_skipped else 0)
+        assert main_window.video_processor.stop_processing.call_count == (0 if save_partial else 2)
+        assert main_window.video_processor._finalize_default_style_recording.call_count == (2 if save_partial else 0)
+        assert main_window.targetVideosList.count() == (0 if save_skipped and clear_skipped else 2)
+        assert len(main_window.target_videos) == (0 if save_skipped and clear_skipped else 2)
         message = video_actions_env.common_widget_actions.create_and_show_messagebox.call_args[0][2]
         assert "Batch processing complete." in message
         assert "Successfully processed: 0" in message

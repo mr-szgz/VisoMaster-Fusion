@@ -2703,6 +2703,8 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     - Videos: Applies current UI settings (markers, inputs, etc.) by running a full 'record' operation.
     """
     # 0. During a batch, this button restores the progress dialog instead of starting another batch.
+    from app.ui.widgets.actions import job_manager_actions
+
     if main_window.is_batch_processing:
         main_window.batch_progress_dialog.show()
         main_window.batch_progress_dialog.raise_()
@@ -2841,14 +2843,14 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     )
     progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
     progress_dialog.setWindowTitle("Batch Processing Media")
-    progress_dialog.skip_button.clicked.connect(
-        lambda: main_window.video_processor.stop_processing()
-        if (
-            main_window.video_processor.processing
-            or main_window.video_processor.is_processing_segments
-        )
-        else None
-    )
+    def interrupt_skipped_media():
+        processor = main_window.video_processor
+        if progress_dialog.save_partial_on_skip_checkbox.isChecked() and processor.recording:
+            processor._finalize_default_style_recording()
+        elif processor.processing or processor.is_processing_segments:
+            processor.stop_processing()
+
+    progress_dialog.skip_button.clicked.connect(interrupt_skipped_media)
     progress_dialog.findChild(QtWidgets.QProgressBar).valueChanged.connect(
         lambda value: batch_button.setText(
             f"Processing Media "
@@ -2887,6 +2889,23 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                 break
 
             if progress_dialog.skip_requested:
+                if progress_dialog.save_skipped_checkbox.isChecked():
+                    job_manager_actions.save_default_job(main_window, media_widget)
+                    job_manager_actions.refresh_job_list(main_window)
+                    if progress_dialog.clear_skipped_checkbox.isChecked():
+                        if main_window.selected_video_button is media_widget:
+                            main_window.selected_video_button = None
+                        if original_media_path == media_path:
+                            original_media_path = None
+                            original_file_type = None
+                            original_frame_num = 0
+                        main_window.targetVideosList.takeItem(media_widget.get_item_position())
+                        main_window.target_videos.pop(media_widget.media_id)
+                        media_widget.deleteLater()
+                        if not main_window.target_videos:
+                            main_window.placeholder_update_signal.emit(
+                                main_window.targetVideosList, False
+                            )
                 skipped_count += 1
                 progress_dialog.setValue(processed_count + failed_count + skipped_count)
                 continue
@@ -3159,6 +3178,25 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     or main_window.video_processor.is_processing_segments
                 ):
                     main_window.video_processor.stop_processing()
+
+            finally:
+                if progress_dialog.skip_requested and progress_dialog.save_skipped_checkbox.isChecked():
+                    job_manager_actions.save_default_job(main_window, media_widget)
+                    job_manager_actions.refresh_job_list(main_window)
+                    if progress_dialog.clear_skipped_checkbox.isChecked():
+                        if main_window.selected_video_button is media_widget:
+                            main_window.selected_video_button = None
+                        if original_media_path == media_path:
+                            original_media_path = None
+                            original_file_type = None
+                            original_frame_num = 0
+                        main_window.targetVideosList.takeItem(media_widget.get_item_position())
+                        main_window.target_videos.pop(media_widget.media_id)
+                        media_widget.deleteLater()
+                        if not main_window.target_videos:
+                            main_window.placeholder_update_signal.emit(
+                                main_window.targetVideosList, False
+                            )
 
             if not progress_dialog.confirmedCanceled():
                 progress_dialog.setValue(processed_count + failed_count + skipped_count)

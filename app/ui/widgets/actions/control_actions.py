@@ -22,13 +22,6 @@ from app.ui.widgets.actions import common_actions as common_widget_actions
 #'''
 
 
-def change_job_list_label_template(main_window: "MainWindow", value: str) -> None:
-    job_list = main_window.jobQueueList
-    items = [job_list.item(index) for index in range(job_list.count())]
-    for item in items:
-        item.setText(item.to_label(value))
-
-
 def handle_face_detector_tracking_reset(main_window: "MainWindow", value: bool) -> None:
     """Resets the tracker instance when tracking is toggled or media changes."""
     main_window.function_worker.reset_face_tracker()

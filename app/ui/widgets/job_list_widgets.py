@@ -72,7 +72,7 @@ class JobQueueListWidgetItem(QtWidgets.QListWidgetItem):
             job_name=job_name,
             embedding_names=embedding_names,
             duration_text=self.durationText(),
-            frames_length=self.data(JobDataRole.FrameCountRole),
+            frames_length=f"{self.data(JobDataRole.FrameCountRole):,}",
         ).strip()
 
         # remove empty parentheticals like "()"

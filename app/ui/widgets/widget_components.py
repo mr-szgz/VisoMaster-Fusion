@@ -2175,13 +2175,13 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.skip_requested = False
         self.cancel_button = self.findChild(QtWidgets.QPushButton)
         self.skip_button = QtWidgets.QPushButton("Skip", self)
-        self.skip_button.setToolTip("Discard the current item and continue to the next")
+        self.skip_button.setToolTip("Skip the current item using the selected save options and continue to the next")
         self.skip_button.clicked.connect(self.request_skip)
         self.stop_button = QtWidgets.QPushButton("Stop", self)
         self.stop_button.setToolTip("Save the current recording and stop the batch")
         self.stop_button.clicked.connect(self.request_stop)
         self.remove_completed_checkbox = QtWidgets.QCheckBox(
-            "Remove completed target media", self
+            "Clear completed target media", self
         )
         self.remove_completed_checkbox.setToolTip(
             "Remove finished items from the target list; keep stopped and cancelled items"
@@ -2192,13 +2192,26 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.stop_after_completion_checkbox.setToolTip(
             "Finish and save the current item, then stop before loading the next media"
         )
+        self.save_skipped_checkbox = QtWidgets.QCheckBox("Save skipped items as jobs", self)
+        self.save_skipped_checkbox.setToolTip(
+            "Save the skipped item with its current settings as a job to process later"
+        )
+        self.save_partial_on_skip_checkbox = QtWidgets.QCheckBox("Save partial video on skip", self)
+        self.save_partial_on_skip_checkbox.setToolTip(
+            "Save the recorded portion of the current video before skipping to the next item"
+        )
+        self.clear_skipped_checkbox = QtWidgets.QCheckBox("Clear skipped target media", self)
+        self.clear_skipped_checkbox.setToolTip(
+            "Clear skipped items from the target list after saving them as jobs"
+        )
+        self.clear_skipped_checkbox.setEnabled(False)
+        self.save_skipped_checkbox.toggled.connect(self.clear_skipped_checkbox.setEnabled)
+        self.suppress_notifications_checkbox = QtWidgets.QCheckBox("Suppress notifications", self)
+        self.suppress_notifications_checkbox.setObjectName("suppressBatchNotificationsCheckbox")
+        self.suppress_notifications_checkbox.setToolTip("Mute batch message alerts and toast notifications")
         self.media_report = QtWidgets.QWidget(self)
         report_layout = QtWidgets.QVBoxLayout(self.media_report)
         report_layout.setContentsMargins(0, 0, 0, 0)
-        report_top_line = QtWidgets.QFrame(self.media_report)
-        report_top_line.setFrameShape(QtWidgets.QFrame.HLine)
-        report_layout.addWidget(report_top_line)
-        report_layout.addSpacing(4)
         self.media_report_layout = QtWidgets.QGridLayout()
         self.media_report_layout.setColumnStretch(1, 1)
         self.media_report_labels = {}
@@ -2215,11 +2228,17 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         report_bottom_line.setFrameShape(QtWidgets.QFrame.HLine)
         report_layout.addWidget(report_bottom_line)
 
+        self.buttons_separator = QtWidgets.QFrame(self)
+        self.buttons_separator.setFrameShape(QtWidgets.QFrame.HLine)
         self.runtime_label = QtWidgets.QLabel("Runtime: 00:00:00", self)
         self.runtime_label.adjustSize()
         self.setMinimumHeight(
             self.sizeHint().height() + self.remove_completed_checkbox.sizeHint().height()
             + self.stop_after_completion_checkbox.sizeHint().height()
+            + self.save_skipped_checkbox.sizeHint().height() + 12
+            + self.save_partial_on_skip_checkbox.sizeHint().height() + 12
+            + self.clear_skipped_checkbox.sizeHint().height() + 12
+            + self.suppress_notifications_checkbox.sizeHint().height() + 12
             + self.media_report.sizeHint().height() + 48
         )
         self.setMinimumWidth(
@@ -2295,9 +2314,22 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         # QProgressDialog positions its children itself; use its existing button row.
         bar = self.findChild(QtWidgets.QProgressBar)
         cancel_button = self.cancel_button
+        self.suppress_notifications_checkbox.adjustSize()
+        suppress_checkbox_y = cancel_button.y() - self.suppress_notifications_checkbox.height() - 12
+        self.suppress_notifications_checkbox.move(bar.x(), suppress_checkbox_y)
+        self.clear_skipped_checkbox.adjustSize()
+        clear_checkbox_y = suppress_checkbox_y - self.clear_skipped_checkbox.height() - 12
+        self.clear_skipped_checkbox.move(bar.x(), clear_checkbox_y)
+        self.save_partial_on_skip_checkbox.adjustSize()
+        partial_checkbox_y = clear_checkbox_y - self.save_partial_on_skip_checkbox.height() - 12
+        self.save_partial_on_skip_checkbox.move(bar.x(), partial_checkbox_y)
+        self.save_skipped_checkbox.adjustSize()
+        save_checkbox_y = partial_checkbox_y - self.save_skipped_checkbox.height() - 12
+        self.save_skipped_checkbox.move(bar.x(), save_checkbox_y)
         self.stop_after_completion_checkbox.adjustSize()
-        stop_checkbox_y = cancel_button.y() - self.stop_after_completion_checkbox.height() - 12
+        stop_checkbox_y = save_checkbox_y - self.stop_after_completion_checkbox.height() - 12
         self.stop_after_completion_checkbox.move(bar.x(), stop_checkbox_y)
+        self.buttons_separator.setGeometry(bar.x(), cancel_button.y() - 7, bar.width(), 2)
         self.remove_completed_checkbox.adjustSize()
         checkbox_y = stop_checkbox_y - self.remove_completed_checkbox.height() - 12
         self.remove_completed_checkbox.move(bar.x(), checkbox_y)

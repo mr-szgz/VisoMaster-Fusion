@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Callable, Optional, cast
+from functools import wraps
 
 import cv2
 import numpy as np
@@ -24,7 +25,19 @@ for _layout_source in [SETTINGS_LAYOUT_DATA, COMMON_LAYOUT_DATA, DENOISER_LAYOUT
             _ALL_CONTROL_WIDGET_OPTIONS[_widget_key] = _widget_data
 
 
+def suppress_batch_notifications(display):
+    @wraps(display)
+    def show(main_window, *args, **kwargs):
+        if any(checkbox.isChecked() for checkbox in main_window.findChildren(
+            QtWidgets.QCheckBox, "suppressBatchNotificationsCheckbox"
+        )):
+            return
+        return display(main_window, *args, **kwargs)
+    return show
+
+
 @QtCore.Slot(str, str, QtWidgets.QWidget)
+@suppress_batch_notifications
 def create_and_show_messagebox(
     main_window: "MainWindow",
     window_title: str,
@@ -39,6 +52,7 @@ def create_and_show_messagebox(
     messagebox.exec_()
 
 
+@suppress_batch_notifications
 def create_and_show_toast_message(
     main_window: "MainWindow", title: str, message: str, style_type="information"
 ):
