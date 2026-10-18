@@ -3,6 +3,9 @@ from __future__ import annotations
 import importlib
 import os
 import sys
+import ast
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -96,6 +99,16 @@ def progress_dialog_module():
                 delattr(parent_module, attr_name)
 
 
+@pytest.fixture(autouse=True)
+def isolated_dialog_settings(progress_dialog_module, monkeypatch, tmp_path):
+    def settings_group(namespace, parent):
+        settings = QtCore.QSettings(str(tmp_path / "dialogs.ini"), QtCore.QSettings.IniFormat, parent)
+        settings.setFallbacksEnabled(False)
+        settings.beginGroup(namespace)
+        return settings
+    monkeypatch.setattr(progress_dialog_module, "settings_group", settings_group)
+
+
 @pytest.fixture
 def qapp():
     app = QtWidgets.QApplication.instance()
@@ -149,7 +162,46 @@ def _flush_qt_events(app):
 
 
 @pytest.mark.qt
-def test_progress_dialog_stop_preserves_cancel_state(progress_dialog_module, qapp):
+@pytest.mark.parametrize("reply", [QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.Cancel])
+@pytest.mark.parametrize("save_partial", [False, True])
+def test_skip_button_batch_interrupt_wiring(progress_dialog_module, qapp, monkeypatch, reply, save_partial):
+    source = Path(__file__).resolve().parents[3] / "app/ui/widgets/actions/video_control_actions.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    handler = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "interrupt_skipped_media")
+    connection = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+        and any(isinstance(arg, ast.Name) and arg.id == "interrupt_skipped_media" for arg in node.value.args)
+    )
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2)
+    dialog.save_partial_on_skip_checkbox.setChecked(save_partial)
+    processor = SimpleNamespace(
+        recording=True, processing=True, is_processing_segments=False,
+        stop_processing=MagicMock(), _finalize_default_style_recording=MagicMock(),
+    )
+    namespace = {"progress_dialog": dialog, "main_window": SimpleNamespace(video_processor=processor)}
+    exec(compile(ast.Module(body=[handler, connection], type_ignores=[]), str(source), "exec"), namespace)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", MagicMock(return_value=reply))
+
+    dialog.skip_button.click()
+
+    confirmed = reply == QtWidgets.QMessageBox.Yes
+    assert dialog.skip_requested == confirmed
+    assert processor.stop_processing.call_count == int(confirmed and not save_partial)
+    assert processor._finalize_default_style_recording.call_count == int(confirmed and save_partial)
+    assert dialog.skip_button.isEnabled() == (not confirmed)
+    assert dialog.stop_button.isEnabled() == (not confirmed)
+    assert dialog.cancel_button.isEnabled() == (not confirmed)
+    assert not dialog.stop_requested
+    assert not dialog.confirmedCanceled()
+    dialog.close_without_confirmation()
+
+
+@pytest.mark.qt
+@pytest.mark.parametrize("reply", [QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.Cancel])
+def test_progress_dialog_stop_preserves_cancel_state(progress_dialog_module, qapp, monkeypatch, reply):
+    prompt = MagicMock(return_value=reply)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", prompt)
     dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2)
     dialog.show()
     _flush_qt_events(qapp)
@@ -158,10 +210,14 @@ def test_progress_dialog_stop_preserves_cancel_state(progress_dialog_module, qap
     assert dialog.runtime_label.geometry().right() < dialog.stop_button.x()
     dialog.stop_button.click()
 
-    assert dialog.stop_requested
+    confirmed = reply == QtWidgets.QMessageBox.Yes
+    assert dialog.stop_requested == confirmed
+    assert not dialog.skip_requested
     assert not dialog.confirmedCanceled()
-    assert not dialog.stop_button.isEnabled()
-    assert not dialog.cancel_button.isEnabled()
+    assert dialog.stop_button.isEnabled() == (not confirmed)
+    assert dialog.skip_button.isEnabled() == (not confirmed)
+    assert dialog.cancel_button.isEnabled() == (not confirmed)
+    assert prompt.call_args.args[-1] == QtWidgets.QMessageBox.No
     dialog.close_without_confirmation()
 
 
@@ -349,7 +405,7 @@ def test_progress_dialog_keeps_one_batch_clock_across_items_and_minimize(
     assert dialog.runtime_label.text() == "Runtime: 01:01:02"
     parent.close()
     next_dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 4)
-    assert not next_dialog.stop_after_completion_checkbox.isChecked()
+    assert next_dialog.stop_after_completion_checkbox.isChecked()
     next_dialog.close_without_confirmation()
 
 
@@ -359,11 +415,11 @@ def test_progress_dialog_item_labels_use_completed_progress(
     progress_dialog_module, qapp, total_items
 ):
     dialog = progress_dialog_module.ProgressDialog(
-        "Starting", "Cancel", 0, 3, total_items=total_items
+        "Starting", "Cancel", 0, 3000, total_items=total_items
     )
     assert dialog.labelText() == "Starting"
     for completed in range(3):
-        dialog.setValue(completed)
+        dialog.setValue(completed * 1000 + 500)
         dialog.setLabelText("image.png")
         expected = (
             f"Processing ({completed + 1}/3): image.png"
@@ -375,7 +431,11 @@ def test_progress_dialog_item_labels_use_completed_progress(
 
 
 @pytest.mark.qt
-def test_skip_discards_without_cancel_confirmation(progress_dialog_module, qapp):
+@pytest.mark.parametrize("reply", [QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.Cancel])
+@pytest.mark.parametrize("save_partial", [True, False])
+def test_skip_requires_confirmation(progress_dialog_module, qapp, monkeypatch, reply, save_partial):
+    prompt = MagicMock(return_value=reply)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", prompt)
     dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2)
     dialog.show()
     _flush_qt_events(qapp)
@@ -384,11 +444,15 @@ def test_skip_discards_without_cancel_confirmation(progress_dialog_module, qapp)
     assert dialog.stop_button.geometry().right() < dialog.cancel_button.x()
     dialog.remove_completed_checkbox.setChecked(True)
     dialog.stop_after_completion_checkbox.setChecked(True)
+    dialog.save_partial_on_skip_checkbox.setChecked(save_partial)
     dialog.skip_button.click()
-    assert dialog.skip_requested
+    confirmed = reply == QtWidgets.QMessageBox.Yes
+    assert dialog.skip_requested == confirmed
     assert not dialog.stop_requested
     assert not dialog.confirmedCanceled()
-    assert not dialog.skip_button.isEnabled()
-    assert not dialog.stop_button.isEnabled()
-    assert not dialog.cancel_button.isEnabled()
+    assert dialog.skip_button.isEnabled() == (not confirmed)
+    assert dialog.stop_button.isEnabled() == (not confirmed)
+    assert dialog.cancel_button.isEnabled() == (not confirmed)
+    assert prompt.call_args.args[-1] == QtWidgets.QMessageBox.No
+    assert ("Save the partial recording." if save_partial else "Discard the partial recording.") in prompt.call_args.args[2]
     dialog.close_without_confirmation()

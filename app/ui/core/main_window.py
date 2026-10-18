@@ -17,12 +17,13 @@ from PySide6.QtGui import (QAction, QBrush, QColor, QConicalGradient,
     QPainter, QPalette, QPixmap, QRadialGradient,
     QTransform)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDockWidget,
-    QFrame, QGraphicsView, QGridLayout, QGroupBox,
-    QHBoxLayout, QLabel, QLayout, QLineEdit,
-    QListView, QListWidget, QListWidgetItem, QMainWindow,
-    QMenu, QMenuBar, QProgressBar, QPushButton,
-    QScrollArea, QSizePolicy, QSlider, QSpacerItem,
-    QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+    QFormLayout, QFrame, QGraphicsView, QGridLayout,
+    QGroupBox, QHBoxLayout, QLabel, QLayout,
+    QLineEdit, QListView, QListWidget, QListWidgetItem,
+    QMainWindow, QMenu, QMenuBar, QProgressBar,
+    QPushButton, QScrollArea, QSizePolicy, QSlider,
+    QSpacerItem, QSpinBox, QTabWidget, QVBoxLayout,
+    QWidget)
 
 from app.ui.widgets.job_list_widgets import JobQueueListWidget
 from app.ui.widgets.sortable_widgets import TargetVideosListWidget
@@ -166,7 +167,7 @@ class Ui_MainWindow(object):
         self.timelineScrollArea.setWidgetResizable(True)
         self.scrollAreaWidgetContents = QWidget()
         self.scrollAreaWidgetContents.setObjectName(u"scrollAreaWidgetContents")
-        self.scrollAreaWidgetContents.setGeometry(QRect(0, 0, 677, 40))
+        self.scrollAreaWidgetContents.setGeometry(QRect(0, 0, 624, 40))
         self.verticalLayout_timeline = QVBoxLayout(self.scrollAreaWidgetContents)
         self.verticalLayout_timeline.setObjectName(u"verticalLayout_timeline")
         self.verticalLayout_timeline.setContentsMargins(0, 0, 0, 0)
@@ -809,7 +810,7 @@ class Ui_MainWindow(object):
         MainWindow.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.input_Faces_DockWidget)
         self.jobManagerDockWidget = QDockWidget(MainWindow)
         self.jobManagerDockWidget.setObjectName(u"jobManagerDockWidget")
-        self.jobManagerDockWidget.setMinimumSize(QSize(382, 259))
+        self.jobManagerDockWidget.setMinimumSize(QSize(442, 282))
         self.jobManagerDockWidget.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetFloatable|QDockWidget.DockWidgetFeature.DockWidgetMovable)
         self.dockWidgetContents_JobManager = QWidget()
         self.dockWidgetContents_JobManager.setObjectName(u"dockWidgetContents_JobManager")
@@ -840,6 +841,13 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_JobManager.addWidget(self.refreshJobListButton)
 
+        self.formLayout = QFormLayout()
+        self.formLayout.setObjectName(u"formLayout")
+        self.jobDisplayLabel = QLabel(self.dockWidgetContents_JobManager)
+        self.jobDisplayLabel.setObjectName(u"jobDisplayLabel")
+
+        self.formLayout.setWidget(0, QFormLayout.ItemRole.LabelRole, self.jobDisplayLabel)
+
         self.jobListLabelTemplateComboBox = QComboBox(self.dockWidgetContents_JobManager)
         self.jobListLabelTemplateComboBox.addItem("")
         self.jobListLabelTemplateComboBox.addItem("")
@@ -851,7 +859,10 @@ class Ui_MainWindow(object):
         self.jobListLabelTemplateComboBox.addItem("")
         self.jobListLabelTemplateComboBox.setObjectName(u"jobListLabelTemplateComboBox")
 
-        self.verticalLayout_JobManager.addWidget(self.jobListLabelTemplateComboBox)
+        self.formLayout.setWidget(0, QFormLayout.ItemRole.FieldRole, self.jobListLabelTemplateComboBox)
+
+
+        self.verticalLayout_JobManager.addLayout(self.formLayout)
 
         self.jobQueueList = JobQueueListWidget(self.dockWidgetContents_JobManager)
         QListWidgetItem(self.jobQueueList)
@@ -1243,6 +1254,7 @@ class Ui_MainWindow(object):
         self.loadJobButton.setText(QCoreApplication.translate("MainWindow", u"Load Job", None))
         self.deleteJobButton.setText(QCoreApplication.translate("MainWindow", u"Delete Job", None))
         self.refreshJobListButton.setText(QCoreApplication.translate("MainWindow", u"Refresh Job List", None))
+        self.jobDisplayLabel.setText(QCoreApplication.translate("MainWindow", u"Format", None))
         self.jobListLabelTemplateComboBox.setItemText(0, QCoreApplication.translate("MainWindow", u"{duration_text} {job_name}", None))
         self.jobListLabelTemplateComboBox.setItemText(1, QCoreApplication.translate("MainWindow", u"{duration_text} {embedding_names}", None))
         self.jobListLabelTemplateComboBox.setItemText(2, QCoreApplication.translate("MainWindow", u"{job_name} ({embedding_names}) {duration_text}", None))

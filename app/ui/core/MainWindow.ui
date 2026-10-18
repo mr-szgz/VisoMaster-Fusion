@@ -155,7 +155,7 @@
                <rect>
                 <x>0</x>
                 <y>0</y>
-                <width>677</width>
+                <width>624</width>
                 <height>40</height>
                </rect>
               </property>
@@ -1418,8 +1418,8 @@
   <widget class="QDockWidget" name="jobManagerDockWidget">
    <property name="minimumSize">
     <size>
-     <width>382</width>
-     <height>259</height>
+     <width>442</width>
+     <height>282</height>
     </size>
    </property>
    <property name="features">
@@ -1466,51 +1466,62 @@
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="jobListLabelTemplateComboBox">
-       <property name="toolTip">
-        <string>Choose how job names, embedding names, durations, and frame counts appear in the job list.</string>
-       </property>
-       <item>
-        <property name="text">
-         <string>{duration_text} {job_name}</string>
-        </property>
+      <layout class="QFormLayout" name="formLayout">
+       <item row="0" column="0">
+        <widget class="QLabel" name="jobDisplayLabel">
+         <property name="text">
+          <string>Format</string>
+         </property>
+        </widget>
        </item>
-       <item>
-        <property name="text">
-         <string>{duration_text} {embedding_names}</string>
-        </property>
+       <item row="0" column="1">
+        <widget class="QComboBox" name="jobListLabelTemplateComboBox">
+         <property name="toolTip">
+          <string>Choose how job names, embedding names, durations, and frame counts appear in the job list.</string>
+         </property>
+         <item>
+          <property name="text">
+           <string>{duration_text} {job_name}</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>{duration_text} {embedding_names}</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>{job_name} ({embedding_names}) {duration_text}</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>{job_name} ({duration_text}) {embedding_names}</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>{embedding_names} ({frames_length}) {job_name}</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>{embedding_names} ({duration_text}) {job_name}</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>{frames_length} ({embedding_names}) {job_name}</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>{frames_length} {job_name}</string>
+          </property>
+         </item>
+        </widget>
        </item>
-       <item>
-        <property name="text">
-         <string>{job_name} ({embedding_names}) {duration_text}</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>{job_name} ({duration_text}) {embedding_names}</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>{embedding_names} ({frames_length}) {job_name}</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>{embedding_names} ({duration_text}) {job_name}</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>{frames_length} ({embedding_names}) {job_name}</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>{frames_length} {job_name}</string>
-        </property>
-       </item>
-      </widget>
+      </layout>
      </item>
      <item>
       <widget class="JobQueueListWidget" name="jobQueueList">

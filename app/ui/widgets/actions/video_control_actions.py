@@ -2837,7 +2837,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
         "Starting batch processing...",
         "Cancel",
         0,
-        len(media_files_to_process),
+        len(media_files_to_process) * 1000,
         main_window,
         total_items=len(media_files_to_process),
     )
@@ -2850,11 +2850,11 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
         elif processor.processing or processor.is_processing_segments:
             processor.stop_processing()
 
-    progress_dialog.skip_button.clicked.connect(interrupt_skipped_media)
+    progress_dialog.skipConfirmed.connect(interrupt_skipped_media)
     progress_dialog.findChild(QtWidgets.QProgressBar).valueChanged.connect(
         lambda value: batch_button.setText(
             f"Processing Media "
-            f"({min(value + 1, len(media_files_to_process))}/{len(media_files_to_process)})"
+            f"({min(value // 1000 + 1, len(media_files_to_process))}/{len(media_files_to_process)})"
         )
     )
     main_window.batch_progress_dialog = progress_dialog
@@ -2881,7 +2881,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
             progress_dialog.stop_button.setEnabled(True)
             progress_dialog.cancel_button.setEnabled(True)
             # Update progress and check for cancellation
-            progress_dialog.setValue(processed_count + failed_count + skipped_count)
+            progress_dialog.setValue((processed_count + failed_count + skipped_count) * 1000)
             progress_dialog.setLabelText(os.path.basename(media_path))
             QtWidgets.QApplication.processEvents()  # Keep UI responsive
 
@@ -2892,22 +2892,22 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                 if progress_dialog.save_skipped_checkbox.isChecked():
                     job_manager_actions.save_default_job(main_window, media_widget)
                     job_manager_actions.refresh_job_list(main_window)
-                    if progress_dialog.clear_skipped_checkbox.isChecked():
-                        if main_window.selected_video_button is media_widget:
-                            main_window.selected_video_button = None
-                        if original_media_path == media_path:
-                            original_media_path = None
-                            original_file_type = None
-                            original_frame_num = 0
-                        main_window.targetVideosList.takeItem(media_widget.get_item_position())
-                        main_window.target_videos.pop(media_widget.media_id)
-                        media_widget.deleteLater()
-                        if not main_window.target_videos:
-                            main_window.placeholder_update_signal.emit(
-                                main_window.targetVideosList, False
-                            )
+                if progress_dialog.clear_skipped_checkbox.isChecked():
+                    if main_window.selected_video_button is media_widget:
+                        main_window.selected_video_button = None
+                    if original_media_path == media_path:
+                        original_media_path = None
+                        original_file_type = None
+                        original_frame_num = 0
+                    main_window.targetVideosList.takeItem(media_widget.get_item_position())
+                    main_window.target_videos.pop(media_widget.media_id)
+                    media_widget.deleteLater()
+                    if not main_window.target_videos:
+                        main_window.placeholder_update_signal.emit(
+                            main_window.targetVideosList, False
+                        )
                 skipped_count += 1
-                progress_dialog.setValue(processed_count + failed_count + skipped_count)
+                progress_dialog.setValue((processed_count + failed_count + skipped_count) * 1000)
                 continue
 
             try:
@@ -3026,9 +3026,11 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                         )
 
                     QtWidgets.QApplication.processEvents()
+                    if progress_dialog.confirmedCanceled():
+                        break
                     if progress_dialog.skip_requested:
                         skipped_count += 1
-                        progress_dialog.setValue(processed_count + failed_count + skipped_count)
+                        progress_dialog.setValue((processed_count + failed_count + skipped_count) * 1000)
                         continue
 
                     # --- Get and save the processed image ---
@@ -3087,6 +3089,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     # 2. Trigger the recording. This will start the async process.
                     main_window.video_processor.recording_output_saved = False
                     record_video(main_window, True)
+                    total_recording_frames = main_window.video_processor.max_frame_number + 1
 
                     # 3. Wait for the processing to finish.
                     # This loop now checks for cancellation
@@ -3094,6 +3097,11 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                         main_window.video_processor.processing
                         or main_window.video_processor.is_processing_segments
                     ):
+                        # Each media item has equal weight; recorded frames fill its share.
+                        progress_dialog.setValue(
+                            (processed_count + failed_count + skipped_count) * 1000
+                            + int(main_window.video_processor.frames_written / total_recording_frames * 1000)
+                        )
                         QtWidgets.QApplication.processEvents()  # Process UI events (like cancel button)
 
                         if progress_dialog.skip_requested:
@@ -3119,7 +3127,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
                     if progress_dialog.skip_requested:
                         skipped_count += 1
-                        progress_dialog.setValue(processed_count + failed_count + skipped_count)
+                        progress_dialog.setValue((processed_count + failed_count + skipped_count) * 1000)
                         continue
 
                     # 4. At this point, record_video has completed (or been aborted)
@@ -3180,9 +3188,10 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     main_window.video_processor.stop_processing()
 
             finally:
-                if progress_dialog.skip_requested and progress_dialog.save_skipped_checkbox.isChecked():
-                    job_manager_actions.save_default_job(main_window, media_widget)
-                    job_manager_actions.refresh_job_list(main_window)
+                if progress_dialog.skip_requested:
+                    if progress_dialog.save_skipped_checkbox.isChecked():
+                        job_manager_actions.save_default_job(main_window, media_widget)
+                        job_manager_actions.refresh_job_list(main_window)
                     if progress_dialog.clear_skipped_checkbox.isChecked():
                         if main_window.selected_video_button is media_widget:
                             main_window.selected_video_button = None
@@ -3199,7 +3208,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                             )
 
             if not progress_dialog.confirmedCanceled():
-                progress_dialog.setValue(processed_count + failed_count + skipped_count)
+                progress_dialog.setValue((processed_count + failed_count + skipped_count) * 1000)
             if progress_dialog.stop_requested:
                 break
 

@@ -17,6 +17,7 @@ import torch
 import gc
 
 import app.ui.widgets.actions.common_actions as common_widget_actions
+from app.settings import settings_group
 from app.ui.widgets.actions import video_control_actions
 from app.ui.widgets.actions import graphics_view_actions
 from app.ui.widgets.actions import card_actions
@@ -2163,6 +2164,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
     """
 
     minimizedChanged = QtCore.Signal(bool)
+    skipConfirmed = QtCore.Signal()
 
     def __init__(self, *args, total_items: int | None = None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -2202,13 +2204,22 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         )
         self.clear_skipped_checkbox = QtWidgets.QCheckBox("Clear skipped target media", self)
         self.clear_skipped_checkbox.setToolTip(
-            "Clear skipped items from the target list after saving them as jobs"
+            "Remove skipped items from the target list independently of saving them as jobs"
         )
-        self.clear_skipped_checkbox.setEnabled(False)
-        self.save_skipped_checkbox.toggled.connect(self.clear_skipped_checkbox.setEnabled)
         self.suppress_notifications_checkbox = QtWidgets.QCheckBox("Suppress notifications", self)
         self.suppress_notifications_checkbox.setObjectName("suppressBatchNotificationsCheckbox")
         self.suppress_notifications_checkbox.setToolTip("Mute batch message alerts and toast notifications")
+        self.checkbox_settings = settings_group("Dialogs/BatchProcessing", self)
+        for name in (
+            "remove_completed_checkbox", "stop_after_completion_checkbox",
+            "save_skipped_checkbox", "save_partial_on_skip_checkbox",
+            "clear_skipped_checkbox", "suppress_notifications_checkbox",
+        ):
+            checkbox = getattr(self, name)
+            key = name
+            if self.checkbox_settings.contains(key):
+                checkbox.setChecked(self.checkbox_settings.value(key, type=bool))
+            checkbox.toggled.connect(partial(self.checkbox_settings.setValue, key))
         self.media_report = QtWidgets.QWidget(self)
         report_layout = QtWidgets.QVBoxLayout(self.media_report)
         report_layout.setContentsMargins(0, 0, 0, 0)
@@ -2271,6 +2282,8 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         # Intercept Qt's cancel flow via signal (this is reliable in PySide6)
         self.canceled.connect(self._on_canceled)
         self.setWindowFlag(QtCore.Qt.WindowMinimizeButtonHint, True)
+        if self.checkbox_settings.contains("geometry"):
+            self.restoreGeometry(self.checkbox_settings.value("geometry"))
 
     def update_runtime(self):
         seconds = self.runtime_clock.elapsed() // 1000
@@ -2280,12 +2293,36 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.runtime_label.adjustSize()
 
     def request_skip(self):
+        partial_output = (
+            "Save the partial recording."
+            if self.save_partial_on_skip_checkbox.isChecked()
+            else "Discard the partial recording."
+        )
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Confirm skip",
+            f"Skip the current item and continue to the next?\n{partial_output}",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
         self.skip_requested = True
         self.skip_button.setEnabled(False)
         self.stop_button.setEnabled(False)
         self.cancel_button.setEnabled(False)
+        self.skipConfirmed.emit()
 
     def request_stop(self):
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Confirm stop",
+            "Save the current recording and stop the batch?\nRemaining items will not be processed.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
         self.stop_requested = True
         self.skip_button.setEnabled(False)
         self.stop_button.setEnabled(False)
@@ -2354,8 +2391,8 @@ class ProgressDialog(QtWidgets.QProgressDialog):
 
     def setLabelText(self, text):
         if self.total_items is not None:
-            # The progress value counts finished items; the label names the next item.
-            text = f"Processing ({self.value() + 1}/{self.total_items}): {text}"
+            # Each item occupies 1000 progress steps; the label names the current item.
+            text = f"Processing ({self.value() // 1000 + 1}/{self.total_items}): {text}"
         super().setLabelText(text)
         self.position_batch_controls()
 
@@ -2379,6 +2416,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         """
         Close the dialog for normal teardown without treating it as a user cancel.
         """
+        self.checkbox_settings.setValue("geometry", self.saveGeometry())
         self.runtime_timer.stop()
         self.update_runtime()
         self._confirmation_disabled = True

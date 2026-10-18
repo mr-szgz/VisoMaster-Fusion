@@ -1,5 +1,7 @@
 from PySide6 import QtCore, QtGui, QtWidgets
+from functools import partial
 
+from app.settings import settings_group
 from app.ui.widgets.job_list_widgets import JobDataRole
 
 
@@ -9,7 +11,7 @@ class JobProgressDialog(QtWidgets.QDialog):
     progressChanged = QtCore.Signal(int, int)
     stopRequested = QtCore.Signal()
     cancelRequested = QtCore.Signal()
-    skipRequested = QtCore.Signal()
+    skipRequested = QtCore.Signal(bool)
 
     def __init__(self, parent, job_items):
         super().__init__(parent)
@@ -21,6 +23,8 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.job_errors = {}
         self.current_index = 0
         self.current_job_name = ""
+        self.processing_rate_clock = QtCore.QElapsedTimer()
+        self.processed_frames_since_update = 0
         self.setWindowTitle("Job Processing")
         self.setWindowIcon(QtGui.QIcon(":/media/media/visomaster_small.png"))
         self.setWindowFlag(QtCore.Qt.WindowMinimizeButtonHint, True)
@@ -42,7 +46,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.report_labels = {}
         for row, field in enumerate((
             "Embedding:", "Frames:", "Frame rate:",
-            "Length:",
+            "Length:", "it/s:",
         )):
             label = QtWidgets.QLabel(field, self)
             value = QtWidgets.QLabel(self)
@@ -52,6 +56,7 @@ class JobProgressDialog(QtWidgets.QDialog):
             report.addWidget(label, row, 0)
             report.addWidget(value, row, 1)
             self.report_labels[field] = (label, value)
+        self.report_labels["it/s:"][1].setText("0.00")
         layout.addLayout(report)
         properties_separator = QtWidgets.QFrame(self)
         properties_separator.setFrameShape(QtWidgets.QFrame.HLine)
@@ -62,6 +67,17 @@ class JobProgressDialog(QtWidgets.QDialog):
             "Finish and save the current job, then stop before loading the next job"
         )
         layout.addWidget(self.stop_after_completion_checkbox)
+        self.save_partial_on_skip_checkbox = QtWidgets.QCheckBox("Save partial video on skip", self)
+        self.save_partial_on_skip_checkbox.setToolTip(
+            "Save the recorded portion of the current video before skipping to the next job"
+        )
+        layout.addWidget(self.save_partial_on_skip_checkbox)
+        self.dialog_settings = settings_group("Dialogs/JobProcessing", self)
+        for name in ("stop_after_completion_checkbox", "save_partial_on_skip_checkbox"):
+            checkbox = getattr(self, name)
+            if self.dialog_settings.contains(name):
+                checkbox.setChecked(self.dialog_settings.value(name, type=bool))
+            checkbox.toggled.connect(partial(self.dialog_settings.setValue, name))
         buttons_separator = QtWidgets.QFrame(self)
         buttons_separator.setFrameShape(QtWidgets.QFrame.HLine)
         buttons_separator.setFrameShadow(QtWidgets.QFrame.Sunken)
@@ -92,6 +108,8 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.runtime_timer = QtCore.QTimer(self)
         self.runtime_timer.timeout.connect(self.update_runtime)
         self.runtime_timer.start(1000)
+        if self.dialog_settings.contains("geometry"):
+            self.restoreGeometry(self.dialog_settings.value("geometry"))
 
     @QtCore.Slot(int, int)
     def queue_ready(self, total, skipped):
@@ -127,10 +145,24 @@ class JobProgressDialog(QtWidgets.QDialog):
 
     @QtCore.Slot()
     def processing_started(self):
+        self.processed_frames_since_update = 0
+        self.processing_rate_clock.start()
+        self.report_labels["it/s:"][1].setText("0.00")
         self.skip_button.setEnabled(True)
         self.status_label.setText(
             f"Processing job ({self.current_index}/{self.total_jobs}): {self.current_job_name}"
         )
+
+    @QtCore.Slot()
+    def frame_processed(self):
+        if self.processing_rate_clock.isValid():
+            self.processed_frames_since_update += 1
+
+    @QtCore.Slot()
+    def processing_stopped(self):
+        self.processing_rate_clock.invalidate()
+        self.processed_frames_since_update = 0
+        self.report_labels["it/s:"][1].setText("0.00")
 
     @QtCore.Slot(str)
     def job_completed(self, job_name):
@@ -141,7 +173,7 @@ class JobProgressDialog(QtWidgets.QDialog):
 
     def skip_current_job(self):
         self.skip_button.setEnabled(False)
-        self.skipRequested.emit()
+        self.skipRequested.emit(self.save_partial_on_skip_checkbox.isChecked())
 
     @QtCore.Slot(str)
     def job_skipped(self, job_name):
@@ -163,6 +195,12 @@ class JobProgressDialog(QtWidgets.QDialog):
         hours, remainder = divmod(self.runtime_clock.elapsed() // 1000, 3600)
         minutes, seconds = divmod(remainder, 60)
         self.runtime_label.setText(f"Runtime: {hours:02}:{minutes:02}:{seconds:02}")
+        if self.processing_rate_clock.isValid():
+            elapsed_seconds = self.processing_rate_clock.nsecsElapsed() / 1_000_000_000
+            rate = self.processed_frames_since_update / elapsed_seconds
+            self.report_labels["it/s:"][1].setText(f"{rate:.2f}")
+            self.processed_frames_since_update = 0
+            self.processing_rate_clock.restart()
 
     def minimize(self):
         self.hide()
@@ -175,6 +213,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.minimize()
 
     def finish(self):
+        self.dialog_settings.setValue("geometry", self.saveGeometry())
         self.runtime_timer.stop()
         self.update_runtime()
         self.hide()

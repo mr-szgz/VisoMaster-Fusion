@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtWidgets import QApplication, QProgressBar, QPushButton
+from PySide6.QtCore import QObject, Signal
 
 
 def _stub(name: str) -> MagicMock:
@@ -1182,10 +1183,12 @@ class _FakeCapture:
         return True
 
 
-class _FakeProgressDialog:
+class _FakeProgressDialog(QObject):
+    skipConfirmed = Signal()
     instances: list["_FakeProgressDialog"] = []
 
     def __init__(self, *_args, **_kwargs):
+        super().__init__()
         self.value_calls = []
         self.labels = []
         self.closed_without_confirmation = 0
@@ -1205,6 +1208,7 @@ class _FakeProgressDialog:
         self._app = QApplication.instance() or QApplication([])
         self.skip_button = QPushButton("Skip")
         self.skip_button.clicked.connect(lambda: setattr(self, "skip_requested", True))
+        self.skip_button.clicked.connect(self.skipConfirmed.emit)
         self.stop_button = QPushButton("Stop")
         self.cancel_button = QPushButton("Cancel")
         self.progress_bar = QProgressBar()
@@ -1471,7 +1475,7 @@ def test_process_batch_images_all_faces_uses_non_confirming_close(
     else:
         assert "Successfully processed: 1" in message
     assert "Runtime: 00:01:23" in message
-    assert progress_dialog.value_calls[-1] == 1
+    assert progress_dialog.value_calls[-1] == 1000
     assert [
         call.args[0] for call in main_window.batchallImageButton.setText.call_args_list
     ] == [
@@ -1485,6 +1489,55 @@ def test_process_batch_images_all_faces_uses_non_confirming_close(
     main_window.batchImageButton.setEnabled.assert_called_with(True)
     main_window.batchallImageButton.setEnabled.assert_called_with(True)
     assert main_window.is_batch_processing is False
+
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+@pytest.mark.parametrize("process_all_faces", [False, True])
+@pytest.mark.parametrize("remove_completed", [False, True])
+def test_cancel_current_image_before_save(
+    monkeypatch, video_actions_env, cancelled, process_all_faces, remove_completed
+):
+    _FakeProgressDialog.instances = []
+    mw = _make_batch_main_window(
+        _FakeBatchMediaWidget("image", "E:/media/first.png"),
+        _FakeBatchMediaWidget("image", "E:/media/second.png"),
+    )
+    module = video_actions_env.module
+    monkeypatch.setattr(module.widget_components, "ProgressDialog", _FakeProgressDialog)
+    monkeypatch.setattr(module.numpy, "ndarray", _FakeBatchFrame, raising=False)
+    monkeypatch.setattr(module.QtWidgets.QMessageBox, "question", lambda *args: module.QtWidgets.QMessageBox.Yes)
+    monkeypatch.setattr(module.os, "makedirs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(module.misc_helpers, "read_image_file", lambda *args: _FakeBatchFrame())
+    output_path = MagicMock(return_value="E:/output/image.png")
+    monkeypatch.setattr(module.misc_helpers, "get_output_file_path", output_path)
+    image_writer = MagicMock()
+    monkeypatch.setattr(module.Image, "fromarray", image_writer)
+    monkeypatch.setattr(module.card_actions, "clear_target_faces", lambda window, **kwargs: window.target_faces.clear())
+    monkeypatch.setattr(module.card_actions, "find_target_faces", lambda window: window.target_faces.update({"face": _FakeBatchTargetFace()}))
+
+    def process_image(**kwargs):
+        dialog = _FakeProgressDialog.instances[-1]
+        dialog.cancelled = cancelled
+        dialog.remove_completed_checkbox.isChecked.return_value = remove_completed
+    mw.video_processor.process_current_frame.side_effect = process_image
+
+    video_actions_env.process_batch_images(mw, process_all_faces=process_all_faces)
+
+    if cancelled:
+        mw.video_processor.process_current_frame.assert_called_once()
+        output_path.assert_not_called()
+        image_writer.assert_not_called()
+        assert len(mw.target_videos) == 2
+        message = video_actions_env.common_widget_actions.create_and_show_messagebox.call_args[0][2]
+        assert "Batch processing cancelled." in message
+        assert "Processed: 0" in message
+    else:
+        assert mw.video_processor.process_current_frame.call_count == 2
+        assert image_writer.return_value.save.call_count == 2
+        assert len(mw.target_videos) == (0 if remove_completed else 2)
+    assert _FakeProgressDialog.instances[-1].closed_without_confirmation == 1
+    assert not mw.is_batch_processing
 
 
 @pytest.mark.parametrize("image_fails", [False, True])
@@ -1578,7 +1631,10 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
         lambda *_args, **_kwargs: None,
     )
     def _record_video(mw, _checked):
-        mw.video_processor.processing = False
+        mw.video_processor.processing = True
+        mw.video_processor.frames_written = 0
+        # Recording can change the output frame count when FPS capping is enabled.
+        mw.video_processor.max_frame_number = 3
         mw.video_processor.recording_output_saved = video_saved
 
     record_video = MagicMock(side_effect=_record_video)
@@ -1586,6 +1642,10 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
     def _process_events():
         _FakeProgressDialog.instances[-1].remove_completed_checkbox.isChecked.return_value = remove_completed
         _FakeProgressDialog.instances[-1].stop_after_completion_checkbox.isChecked.return_value = stop_after_completion
+        if main_window.video_processor.processing:
+            main_window.video_processor.frames_written += 2
+            if main_window.video_processor.frames_written == 4:
+                main_window.video_processor.processing = False
 
     monkeypatch.setattr(
         video_actions_env.module.QtWidgets.QApplication, "processEvents", _process_events
@@ -1623,7 +1683,11 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
         assert f"Failed to process: {int(image_fails)}" in message
     assert record_video.call_count == (0 if stopped_after_image else 1)
     assert progress_dialog.runtime_label.text() in message
-    assert progress_dialog.value_calls[-1] == (1 if stopped_after_image else 2)
+    assert progress_dialog.value_calls[-1] == (1000 if stopped_after_image else 2000)
+    assert progress_dialog.progress_bar.maximum() == 2000
+    if not stopped_after_image:
+        # One finished image plus half of the second item is 75% of the batch.
+        assert 1500 in progress_dialog.value_calls
     assert main_window.targetVideosList.count() == (
         int(image_fails) + int(stopped_after_image or not video_saved) if remove_completed else 2
     )
@@ -1639,6 +1703,7 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
         "Processing Media (2/2)",
     ]
     if not stopped_after_image:
+        expected_labels.append("Processing Media (2/2)")
         expected_labels.append("Processing Media (2/2)")
     assert labels == expected_labels + ["Batch Selected"]
     main_window.batchallImageButton.setText.assert_not_called()
@@ -1742,6 +1807,7 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
 
     def _record_video(mw, _checked):
         mw.video_processor.processing = True
+        mw.video_processor.frames_written = 0
         mw.video_processor.recording = True
         mw.video_processor.is_processing_segments = False
         if skip:
@@ -1773,8 +1839,8 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
         assert refresh_jobs.call_count == (2 if save_skipped else 0)
         assert main_window.video_processor.stop_processing.call_count == (0 if save_partial else 2)
         assert main_window.video_processor._finalize_default_style_recording.call_count == (2 if save_partial else 0)
-        assert main_window.targetVideosList.count() == (0 if save_skipped and clear_skipped else 2)
-        assert len(main_window.target_videos) == (0 if save_skipped and clear_skipped else 2)
+        assert main_window.targetVideosList.count() == (0 if clear_skipped else 2)
+        assert len(main_window.target_videos) == (0 if clear_skipped else 2)
         message = video_actions_env.common_widget_actions.create_and_show_messagebox.call_args[0][2]
         assert "Batch processing complete." in message
         assert "Successfully processed: 0" in message

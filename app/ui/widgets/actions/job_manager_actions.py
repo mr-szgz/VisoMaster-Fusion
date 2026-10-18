@@ -15,6 +15,7 @@ import threading
 import re
 import traceback  # Import traceback for error logging
 from send2trash import send2trash
+from app.settings import settings_group
 
 from app.ui.widgets.actions import common_actions as common_widget_actions
 from app.ui.widgets.actions import card_actions
@@ -496,6 +497,8 @@ def _load_job_controls_and_state(
     sanitized_control = save_load_actions.sanitize_state_dictionary(
         raw_control, main_window.control
     )
+    if is_batch_load:
+        sanitized_control["KeepControlsToggle"] = main_window.control["KeepControlsToggle"]
     main_window.control.update(sanitized_control)
 
     # Ensure AutoSwap is off after loading a job
@@ -1462,6 +1465,13 @@ def setup_job_manager_ui(main_window: "MainWindow"):
             QtWidgets.QAbstractItemView.ExtendedSelection
         )
 
+    label_combo = main_window.jobListLabelTemplateComboBox
+    label_settings = settings_group("UI/JobManager", label_combo)
+    label_key = "labelTemplate"
+    if label_settings.contains(label_key):
+        label_combo.setCurrentText(label_settings.value(label_key, type=str))
+    label_combo.currentTextChanged.connect(partial(label_settings.setValue, label_key))
+
     # Connect signals to slots
     connect_job_manager_signals(main_window)
 
@@ -1848,12 +1858,20 @@ def load_job_settings(main_window: "MainWindow", job_data: dict):
             job_data["restore_selected_face"] if "restore_selected_face" in job_data
             else job_data["control"]["ClusterOutputBySourceToggle"]
         )
+        if main_window.control["KeepControlsToggle"] and main_window.target_faces:
+            restore_selected_face = True
+            if selected_face_id is None:
+                selected_face_id = next(iter(main_window.target_faces))
         if restore_selected_face and selected_face_id is not None:
             main_window.selected_target_face_id = selected_face_id
             selected_face_button = main_window.target_faces.get(selected_face_id)
             main_window.cur_selected_target_face_button = selected_face_button
             if selected_face_button is not None:
                 selected_face_button.setChecked(True)
+            if main_window.control["KeepControlsToggle"]:
+                main_window.current_widget_parameters = main_window.parameters[
+                    selected_face_id
+                ].copy()
 
         # 3. Load controls/state.
         _load_job_controls_and_state(main_window, job_data, is_batch_load=True)
@@ -1930,6 +1948,12 @@ def handle_batch_completion(main_window: "MainWindow"):
     batch_succeeded = main_window.job_processor.batch_succeeded
     main_window.video_processor.processing_started_signal.disconnect(
         main_window.job_progress_dialog.processing_started
+    )
+    main_window.video_processor.frame_processed_signal.disconnect(
+        main_window.job_progress_dialog.frame_processed
+    )
+    main_window.video_processor.processing_stopped_signal.disconnect(
+        main_window.job_progress_dialog.processing_stopped
     )
     main_window.job_progress_dialog.finish()
 
@@ -2083,12 +2107,17 @@ def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | 
     dialog.stop_after_completion_checkbox.toggled.connect(
         main_window.job_processor.set_stop_after_current
     )
+    main_window.job_processor.set_stop_after_current(
+        dialog.stop_after_completion_checkbox.isChecked()
+    )
     main_window.job_processor.queue_ready_signal.connect(dialog.queue_ready)
     main_window.job_processor.job_started_signal.connect(dialog.job_started)
     main_window.job_processor.job_completed_signal.connect(dialog.job_completed)
     main_window.job_processor.job_skipped_signal.connect(dialog.job_skipped)
     main_window.job_processor.job_failed_signal.connect(dialog.job_failed)
     main_window.video_processor.processing_started_signal.connect(dialog.processing_started)
+    main_window.video_processor.frame_processed_signal.connect(dialog.frame_processed)
+    main_window.video_processor.processing_stopped_signal.connect(dialog.processing_stopped)
 
     # Connect signals from the worker thread to slots in the main thread
     # Connect signals for new batch-loading process
@@ -2269,9 +2298,13 @@ class JobProcessor(QThread):
         except Exception as e:
             print(f"[WARN] Error while stopping active processing for cancel: {e}")
 
-    def request_skip(self):
+    def request_skip(self, save_partial: bool):
         self.skip_requested_event.set()
-        self.main_window.video_processor.stop_processing()
+        processor = self.main_window.video_processor
+        if save_partial and processor.recording:
+            processor._finalize_default_style_recording()
+        elif processor.processing or processor.is_processing_segments:
+            processor.stop_processing()
 
     def request_stop(self):
         self.batch_stopped = True
