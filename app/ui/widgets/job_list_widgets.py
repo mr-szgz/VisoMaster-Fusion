@@ -1,18 +1,11 @@
 import enum
 import json
+import re
 
 import cv2
 from PySide6 import QtCore, QtWidgets
 
 from app.helpers.miscellaneous import get_file_type
-
-JOB_LIST_LABEL_TPL_SELECTED_INDEX = 1
-
-JOB_LIST_ITEM_LABEL_TPL = (
-    '{job_name} ({embedding_names}){duration_text}',
-    '{embedding_names}{duration_text} {job_name}',
-    '{job_name}{duration_text}',
-)
 
 class JobDataRole(enum.IntEnum):
     JobNameRole = 0x180
@@ -72,15 +65,26 @@ class JobQueueListWidgetItem(QtWidgets.QListWidgetItem):
             self.setData(JobDataRole.FrameRateRole, capture.get(cv2.CAP_PROP_FPS))
             capture.release()
 
-    def to_label(self) -> str:
+    def to_label(self, label_tpl: str) -> str:
         job_name = self.data(JobDataRole.JobNameRole)
         embedding_names = ', '.join(self.data(JobDataRole.EmbeddingNamesRole))
-        duration_text = self.durationText()
-        return JOB_LIST_ITEM_LABEL_TPL[JOB_LIST_LABEL_TPL_SELECTED_INDEX].format(
+        label_out = label_tpl.format(
             job_name=job_name,
             embedding_names=embedding_names,
-            duration_text=duration_text,
+            duration_text=self.durationText(),
+            frames_length=self.data(JobDataRole.FrameCountRole),
         ).strip()
+
+        # remove empty parentheticals like "()"
+        label_out = re.sub(r'\( *\)', '', label_out)
+
+        # remove empty parentheticals tags "[]"
+        label_out = re.sub(r'\[ *\]', '', label_out)
+
+        # replace 2 or more spaces with single space
+        label_out = re.sub(r' {2,}', ' ', label_out).strip()
+
+        return label_out
 
     def to_tooltip(self) -> str:
         tooltip = f"Saved job {self.data(JobDataRole.MediaTypeRole)}{self.durationText()}"
@@ -98,4 +102,4 @@ class JobQueueListWidgetItem(QtWidgets.QListWidgetItem):
             return ""
         hours, remainder = divmod(int(self.data(JobDataRole.FrameCountRole) / frame_rate), 3600)
         minutes, seconds = divmod(remainder, 60)
-        return f" ({hours:02d}:{minutes:02d}:{seconds:02d})"
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}" or ""

@@ -524,7 +524,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             QtWidgets.QSizePolicy.Policy.Minimum,
             QtWidgets.QSizePolicy.Policy.Fixed,
         )
-        self.horizontalLayout_4.setContentsMargins(9, 4, 9, 9)
+        self.gridLayout_2.setContentsMargins(9, 4, 9, 9)
         self.verticalLayout.invalidate()
         QtCore.QTimer.singleShot(0, self._normalize_media_control_button_sizes)
 
@@ -1939,6 +1939,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.editFacesButton,
         ]
 
+        self.gridLayout_2.setRowStretch(1, 0)
         self.controlButtonsLayout.setSpacing(4)
 
         self.targetFacesList.setMinimumHeight(_FACES_PANEL_ROW_HEIGHT)
@@ -1948,10 +1949,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             offset_layout = QtWidgets.QVBoxLayout(self._faces_list_offset_container)
             offset_layout.setContentsMargins(0, 30, 0, 0)  # push list down 30px
             offset_layout.setSpacing(0)
-            self.horizontalLayout_4.replaceWidget(
-                self.targetFacesList, self._faces_list_offset_container
-            )
+            self.gridLayout_2.removeWidget(self.targetFacesList)
             offset_layout.addWidget(self.targetFacesList)
+            self.gridLayout_2.addWidget(
+                self._faces_list_offset_container, 1, 1, 1, 1
+            )
 
         self.targetFacesList.setMinimumHeight(_FACES_PANEL_ROW_HEIGHT)
         self.targetFacesList.setMaximumHeight(_FACES_PANEL_ROW_HEIGHT)
@@ -2086,11 +2088,11 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         """Restores widgets to their original left panel seamlessly."""
         if getattr(self, "_faces_list_offset_container", None) is not None:
             self._faces_list_offset_container.layout().addWidget(self.targetFacesList)
-            self.horizontalLayout_4.insertWidget(
-                1, self._faces_list_offset_container
+            self.gridLayout_2.addWidget(
+                self._faces_list_offset_container, 1, 1, 1, 1
             )
         else:
-            self.horizontalLayout_4.insertWidget(1, self.targetFacesList)
+            self.gridLayout_2.addWidget(self.targetFacesList, 1, 1, 1, 1)
 
         btns = [
             self.findTargetFacesButton,

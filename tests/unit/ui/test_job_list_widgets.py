@@ -46,7 +46,7 @@ def test_job_list_widgets_with_real_qt(tmp_path):
         queue.setSortingEnabled(True)
         item = widgets.JobQueueListWidgetItem(QtCore.QFileInfo(str(path)))
         item.setData(widgets.JobDataRole.JobNameRole, "Saved.job")
-        item.setData(QtCore.Qt.ItemDataRole.DisplayRole, item.to_label())
+        item.setData(QtCore.Qt.ItemDataRole.DisplayRole, "Saved.job")
         item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item.to_tooltip())
         queue.addItem(item)
         assert isinstance(item, widgets.JobQueueListWidgetItem)
@@ -56,12 +56,6 @@ def test_job_list_widgets_with_real_qt(tmp_path):
         assert item.data(widgets.JobDataRole.TargetMediaPathRole) == "photo.png"
         assert item.data(widgets.JobDataRole.EmbeddingNamesRole) == ["Bob", "Alice"]
         assert item.data(widgets.JobDataRole.FrameCountRole) == 1
-        assert item.text() == "Bob, Alice Saved.job"
-        for template_index, expected in enumerate((
-            "Saved.job (Bob, Alice)", "Bob, Alice Saved.job", "Saved.job",
-        )):
-            with patch.object(widgets, "JOB_LIST_LABEL_TPL_SELECTED_INDEX", template_index):
-                assert item.to_label() == expected
         assert item.toolTip() == "Saved job image with `Bob`, `Alice` embed names"
         assert item.data(widgets.JobDataRole.EmbeddingNamesRole) == ["Bob", "Alice"]
         assert all(int(role) >= int(QtCore.Qt.ItemDataRole.UserRole) for role in widgets.JobDataRole)
@@ -81,15 +75,13 @@ def test_job_list_widgets_with_real_qt(tmp_path):
         path.write_text(json.dumps(job), encoding="utf-8")
 
         # Setters and display methods work on the stored data without reading the file again.
-        for names, expected_label, tooltip_suffix in [
-            (["Alice"], "Alice Saved.job", " with `Alice` embed name"),
-            ([], "Saved.job", " with no assigned embeddings"),
+        for names, tooltip_suffix in [
+            (["Alice"], " with `Alice` embed name"),
+            ([], " with no assigned embeddings"),
         ]:
             item.setData(widgets.JobDataRole.EmbeddingNamesRole, names)
-            item.setData(QtCore.Qt.ItemDataRole.DisplayRole, item.to_label())
             item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item.to_tooltip())
             assert item.data(widgets.JobDataRole.EmbeddingNamesRole) == names
-            assert item.text() == expected_label
             assert item.toolTip() == "Saved job image" + tooltip_suffix
 
         # Video length comes from the selected target, never the first media entry.
@@ -109,11 +101,8 @@ def test_job_list_widgets_with_real_qt(tmp_path):
             with patch.object(widgets.cv2, "VideoCapture", return_value=capture) as factory:
                 video_item = widgets.JobQueueListWidgetItem(QtCore.QFileInfo(str(path)))
                 video_item.setData(widgets.JobDataRole.JobNameRole, "Saved.job")
-                video_item.setData(QtCore.Qt.ItemDataRole.DisplayRole, video_item.to_label())
                 video_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, video_item.to_tooltip())
-                assert video_item.text() == "Bob, Alice" + suffix + " Saved.job"
                 assert video_item.toolTip() == "Saved job video" + suffix + " with `Bob`, `Alice` embed names"
-                assert video_item.to_label() == video_item.data(QtCore.Qt.ItemDataRole.DisplayRole)
                 factory.assert_called_once_with()
             capture.open.assert_called_once_with("selected.mp4")
             capture.setExceptionMode.assert_called_once_with(True)
@@ -148,17 +137,16 @@ def test_job_list_widgets_with_real_qt(tmp_path):
             other_path.write_text(json.dumps(job), encoding="utf-8")
             other_item = widgets.JobQueueListWidgetItem(QtCore.QFileInfo(str(other_path)))
             other_item.setData(widgets.JobDataRole.JobNameRole, name)
-            other_item.setData(QtCore.Qt.ItemDataRole.DisplayRole, other_item.to_label())
+            other_item.setData(QtCore.Qt.ItemDataRole.DisplayRole, name)
             queue.addItem(other_item)
         queue.sortItems()
-        assert [queue.item(i).data(widgets.JobDataRole.JobNameRole) for i in range(queue.count())] == ["A first", "Z last", "Saved.job"]
+        assert [queue.item(i).data(widgets.JobDataRole.JobNameRole) for i in range(queue.count())] == ["A first", "Saved.job", "Z last"]
         model = queue.model()
         index = model.match(model.index(0, 0), widgets.JobDataRole.JobNameRole, "Saved.job", 1, QtCore.Qt.MatchFlag.MatchExactly)[0]
         queue.setCurrentIndex(index)
         queue.scrollTo(index, QtWidgets.QAbstractItemView.ScrollHint.EnsureVisible)
         assert item.isSelected()
         item.setData(widgets.JobDataRole.JobNameRole, "Independent job name")
-        assert item.to_label() == "Independent job name"
         assert item.data(widgets.JobDataRole.FileInfoRole).fileName() == "Saved.job.json"
         assert all(not isinstance(item.data(role), dict) for role in widgets.JobDataRole)
 
@@ -241,8 +229,8 @@ def test_job_list_widgets_with_real_qt(tmp_path):
         ui = Ui_MainWindow()
         ui.setupUi(window)
         assert isinstance(ui.jobQueueList, widgets.JobQueueListWidget)
-        assert ui.horizontalLayout_4.itemAt(1).widget() is ui.targetFacesList
-        assert ui.horizontalLayout_4.itemAt(2).widget() is ui.inputEmbeddingsList
+        assert ui.gridLayout_2.itemAtPosition(1, 1).widget() is ui.targetFacesList
+        assert ui.gridLayout_2.itemAtPosition(1, 2).widget() is ui.inputEmbeddingsList
         print("Job roles, display, media, failures, selection, sorting, and promoted UI passed.")
     ''')
     result = subprocess.run(
@@ -295,7 +283,7 @@ def test_real_main_window_job_save_and_edit(tmp_path):
             window = MainWindow(gpu_id=0)
             window.show()
             app.processEvents()
-            assert window.horizontalLayout_4.itemAt(2).widget() is window.embeddingTabs.parentWidget()
+            assert window.gridLayout_2.itemAtPosition(1, 2).widget() is window.embeddingTabs.parentWidget()
             card = widget_components.TargetMediaCardButton(
                 str(media), "video", "test-media", main_window=window)
             window.target_videos[card.media_id] = card

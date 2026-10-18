@@ -1680,7 +1680,10 @@ def refresh_job_list(main_window: "MainWindow", selected_job_name: str | None = 
         for job_name in job_names:
             item = JobQueueListWidgetItem(QFileInfo(str(jobs_dir / f"{job_name}.json")))
             item.setData(JobDataRole.JobNameRole, job_name)
-            item.setData(Qt.ItemDataRole.DisplayRole, item.to_label())
+            item.setData(
+                Qt.ItemDataRole.DisplayRole,
+                item.to_label(main_window.control["JobListLabelTemplateSelection"]),
+            )
             item.setData(Qt.ItemDataRole.ToolTipRole, item.to_tooltip())
             main_window.jobQueueList.addItem(item)
         update_job_manager_buttons(main_window)

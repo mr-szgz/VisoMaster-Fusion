@@ -5,6 +5,16 @@ import cv2
 from app.processors.utils import platform_support
 from app.ui.widgets.actions import control_actions
 
+JOB_LIST_ITEM_LABEL_TPL = (
+    '{job_name} ({embedding_names}) {duration_text}',
+    '{job_name} ({duration_text}) {embedding_names}',
+    '{embedding_names} ({duration_text}) {job_name}',
+    '{embedding_names} ({frames_length}) {job_name}',
+    '{duration_text} {job_name}',
+    '{frames_length} {job_name}',
+    '{frames_length} ({embedding_names}) {job_name}'
+)
+
 EXPERIMENTAL_SETTINGS_CONTROL_KEYS = frozenset(
     {
         "ActivateexperimentalsettingsEnableToggle",
@@ -313,6 +323,15 @@ SETTINGS_LAYOUT_DATA: Any = {
             "label": "Cluster Output by Source Name",
             "default": False,
             "help": "Save processed output into a subfolder named after the selected merged embedding.",
+        },
+        "JobListLabelTemplateSelection": {
+            "level": 1,
+            "label": "Job List Label Template",
+            "options": JOB_LIST_ITEM_LABEL_TPL,
+            "default": JOB_LIST_ITEM_LABEL_TPL[0],
+            "help": "Choose how job names, embedding names, durations, and frame counts appear in the job list.",
+            "exec_function": control_actions.change_job_list_label_template,
+            "exec_function_args": [],
         },
     },
     "Video Playback Settings": {
