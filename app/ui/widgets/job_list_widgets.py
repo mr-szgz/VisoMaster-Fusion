@@ -88,7 +88,10 @@ class JobQueueListWidgetItem(QtWidgets.QListWidgetItem):
         return label_out
 
     def to_tooltip(self) -> str:
-        tooltip = f"Saved job {self.data(JobDataRole.MediaTypeRole)}{self.durationText()}"
+        tooltip = f"Saved job {self.data(JobDataRole.MediaTypeRole)}"
+        duration = self.durationText()
+        if duration:
+            tooltip += f" ({duration})"
         names = self.data(JobDataRole.EmbeddingNamesRole)
         if names:
             name_label = "embed name" if len(names) == 1 else "embed names"

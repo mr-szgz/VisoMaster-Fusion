@@ -63,16 +63,24 @@ def test_job_progress_lifecycle(tmp_path):
         import qdarktheme
         from app.ui.widgets.actions import job_manager_actions as actions
         from app.ui.widgets.job_list_widgets import JobDataRole as Role
+        from app.ui.widgets import job_progress_dialog
         from app.ui.widgets.job_progress_dialog import JobProgressDialog
 
         app = QtWidgets.QApplication([])
         app.setStyleSheet(qdarktheme.load_stylesheet(theme="dark"))
         root = Path(sys.argv[1])
+        def isolated_settings(namespace, parent):
+            settings = QtCore.QSettings(str(root / "dialogs.ini"), QtCore.QSettings.IniFormat, parent)
+            settings.beginGroup(namespace)
+            return settings
 
         class Video(QtCore.QObject):
             processing_started_signal = QtCore.Signal()
             processing_stopped_signal = QtCore.Signal()
             processing_heartbeat_signal = QtCore.Signal()
+            frame_processed_signal = QtCore.Signal()
+            is_processing_segments = False
+            recording = False
             def stop_processing(self):
                 self.processing_stopped_signal.emit()
 
@@ -83,7 +91,7 @@ def test_job_progress_lifecycle(tmp_path):
             assert predicate()
 
         for selected in (False, True):
-            for outcome in ("success", "cancel", "load_failure"):
+            for outcome in ("success", "stop", "cancel", "load_failure"):
                 window = QtWidgets.QMainWindow()
                 window.project_root_path = root / f"{selected}-{outcome}"
                 jobs = window.project_root_path / "jobs"
@@ -96,12 +104,15 @@ def test_job_progress_lifecycle(tmp_path):
                 batch_dialog = window.batch_progress_dialog
                 window.is_batch_processing = False
                 window.jobQueueList = QtWidgets.QListWidget(window)
+                window.jobListLabelTemplateComboBox = QtWidgets.QComboBox(window)
+                window.jobListLabelTemplateComboBox.addItem("{job_name}")
                 for attr, label in (
                     ("buttonProcessAll", "Process All"),
                     ("buttonProcessSelected", "Process Selected"),
                     ("buttonStopProcessing", "Stop Processing"),
                     ("addJobButton", "Save Job"), ("loadJobButton", "Load Job"),
                     ("deleteJobButton", "Delete Job"), ("refreshJobListButton", "Refresh"),
+                    ("checkNewJobListButton", "Check for New"),
                 ):
                     setattr(window, attr, QtWidgets.QPushButton(label, window))
                 for name, fps in (("A", 25.0), ("B", 0.0)):
@@ -127,11 +138,12 @@ def test_job_progress_lifecycle(tmp_path):
                 summaries = []
 
                 def capture_report(box):
+                    summary = box.findChild(QtWidgets.QLabel).text()
                     reports.append(box.windowTitle())
-                    summaries.append(box.text())
-                    assert box.detailedText().startswith("Queued jobs:")
-                    assert "Runtime:" in box.text()
-                    return QtWidgets.QMessageBox.Ok
+                    summaries.append(summary)
+                    assert box.findChild(QtWidgets.QPlainTextEdit).toPlainText().startswith("Queued jobs:")
+                    assert "Runtime:" in summary
+                    return QtWidgets.QDialog.Accepted
 
                 def analyze(worker):
                     worker.job_data_list = [{"job_name_internal": name} for name in worker.jobs]
@@ -144,11 +156,12 @@ def test_job_progress_lifecycle(tmp_path):
                 def process(worker, name):
                     window.video_processor.processing_started_signal.emit()
                     while not gates[name].wait(0.01):
-                        if worker.cancel_requested_event.is_set():
+                        if worker.cancel_requested_event.is_set() or worker.stop_requested_event.is_set():
                             return False
                     return True
 
-                with patch.object(actions, "_serialize_job_data", return_value={"snapshot": True}), \
+                with patch.object(job_progress_dialog, "settings_group", isolated_settings), \
+                     patch.object(actions, "_serialize_job_data", return_value={"snapshot": True}), \
                      patch.object(actions, "_restore_workspace_from_snapshot", side_effect=lambda *args: restored.append(True)), \
                      patch.object(actions.JobProcessor, "_analyze_job_batch", analyze), \
                      patch.object(actions.JobProcessor, "_trigger_and_wait_for_processing", process), \
@@ -160,7 +173,7 @@ def test_job_progress_lifecycle(tmp_path):
                      patch.object(actions.video_control_actions, "block_if_issue_scan_active", return_value=False), \
                      patch.object(actions.QMessageBox, "information", side_effect=lambda *args: reports.append(args[1])), \
                      patch.object(actions.QMessageBox, "warning", side_effect=lambda *args: reports.append(args[1])), \
-                     patch.object(actions.QMessageBox, "exec", capture_report), \
+                     patch.object(QtWidgets.QDialog, "exec", capture_report), \
                      patch.object(actions.QMessageBox, "critical", side_effect=lambda *args: reports.append(args[1])):
                     active = window.buttonProcessSelected if selected else window.buttonProcessAll
                     other = window.buttonProcessAll if selected else window.buttonProcessSelected
@@ -178,28 +191,30 @@ def test_job_progress_lifecycle(tmp_path):
                     else:
                         wait_for(lambda: dialog.current_index == 1)
                         assert dialog.report_labels["Embedding:"][1].text() == "Saved embedding"
-                        assert dialog.report_labels["Output file name:"][1].text() == ("custom-output" if selected else "A")
+                        assert dialog.report_labels["Frames:"][1].text() == ("1" if selected else "50")
                         assert dialog.report_labels["Frame rate:"][0].isVisible() is not selected
                         assert active.text().endswith("(1/1)" if selected else "(1/2)")
-                        dialog.minimize_button.click()
+                        dialog.minimize()
                         assert not dialog.isVisible() and active.isChecked()
                         active.click()
                         assert window.job_processor is worker
                         assert window.job_progress_dialog is dialog
-                        assert dialog.isVisible() and not active.isChecked()
+                        assert dialog.isVisible() and active.isChecked()
                         dialog.showMinimized()
                         app.processEvents()
-                        assert not dialog.isVisible() and active.isChecked()
+                        assert dialog.isMinimized() and active.isChecked()
                         active.click()
                         dialog.reject()
                         assert not dialog.isVisible() and active.isChecked()
                         active.click()
                         if not selected and outcome == "success":
                             dialog.grab().save(str(Path(os.environ["TEMP"]) / "visomaster-job-progress.png"))
-                        if outcome == "cancel":
-                            dialog.stop_button.click()
-                            assert worker.cancel_requested_event.is_set()
-                            assert not dialog.stop_button.isEnabled()
+                        if outcome in ("stop", "cancel"):
+                            button = dialog.stop_button if outcome == "stop" else dialog.cancel_button
+                            button.click()
+                            assert worker.stop_requested_event.is_set() == (outcome == "stop")
+                            assert worker.cancel_requested_event.is_set() == (outcome == "cancel")
+                            assert not button.isEnabled()
                             assert not window.buttonStopProcessing.isEnabled()
                         else:
                             dialog.minimize()
@@ -208,10 +223,11 @@ def test_job_progress_lifecycle(tmp_path):
                                 assert not dialog.isVisible()
                                 assert active.isChecked()
                                 assert active.text().endswith(f"({index}/{len(worker.jobs)})")
-                                assert dialog.report_labels["Job:"][1].text() == name
+                                assert dialog.current_job_name == name
                                 gates[name].set()
                         wait_for(lambda: window.job_progress_dialog is None)
-                        assert ("Job Processing Stopped" if outcome == "cancel" else "Job Processing Complete") in reports
+                        expected_title = {"stop": "Job Processing Stopped", "cancel": "Job Processing Cancelled", "success": "Job Processing Complete"}[outcome]
+                        assert expected_title in reports
                     assert worker.isFinished()
                     assert len(summaries) == 1
                     assert summaries[0].startswith("Process Selected" if selected else "Process All")
@@ -220,8 +236,9 @@ def test_job_progress_lifecycle(tmp_path):
                     assert f"Completed: {total if outcome == 'success' else 0}" in summaries[0]
                     assert "Failed: 0" in summaries[0]
                     assert "Skipped: 0" in summaries[0]
-                    assert f"Stopped: {1 if outcome == 'cancel' else 0}" in summaries[0]
-                    remaining = total if outcome == "load_failure" else total - 1 if outcome == "cancel" else 0
+                    assert f"Stopped: {int(outcome == 'stop')}" in summaries[0]
+                    assert f"Cancelled: {int(outcome == 'cancel')}" in summaries[0]
+                    remaining = total if outcome == "load_failure" else total - 1 if outcome in ("stop", "cancel") else 0
                     assert f"Not started: {remaining}" in summaries[0]
                     assert restored == [True]
                     assert not active.isChecked() and not active.isCheckable()
@@ -246,21 +263,24 @@ def test_job_progress_lifecycle(tmp_path):
             processor = SimpleNamespace(
                 jobs=["Done", "Active", "Skipped", "Pending"],
                 skipped_jobs=["Skipped: Missing media"],
-                batch_cancelled=cancelled, batch_succeeded=False,
+                batch_cancelled=cancelled, batch_stopped=False, batch_succeeded=False,
                 completed_dir=root / "completed",
             )
             dialog.finish()
             def check_counts(box):
-                assert "Queued: 4" in box.text()
-                assert "Completed: 1" in box.text()
-                assert f"Failed: {0 if cancelled else 1}" in box.text()
-                assert "Skipped: 1" in box.text()
-                assert f"Stopped: {1 if cancelled else 0}" in box.text()
-                assert "Not started: 1" in box.text()
-                assert "Skipped: Missing media" in box.detailedText()
-                assert "Completed job files:" in box.detailedText()
-                return QtWidgets.QMessageBox.Ok
-            with patch.object(QtWidgets.QMessageBox, "exec", check_counts):
+                summary = box.findChild(QtWidgets.QLabel).text()
+                details = box.findChild(QtWidgets.QPlainTextEdit).toPlainText()
+                assert "Queued: 4" in summary
+                assert "Completed: 1" in summary
+                assert f"Failed: {0 if cancelled else 1}" in summary
+                assert "Skipped: 1" in summary
+                assert "Stopped: 0" in summary
+                assert f"Cancelled: {int(cancelled)}" in summary
+                assert "Not started: 1" in summary
+                assert "Skipped: Missing media" in details
+                assert "Completed job files:" in details
+                return QtWidgets.QDialog.Accepted
+            with patch.object(QtWidgets.QDialog, "exec", check_counts):
                 dialog.show_result(processor, "Process All")
             dialog.deleteLater()
         print("PASS both job commands: progress, metadata, minimize, reopen, success, cancel, load failure, isolation")
