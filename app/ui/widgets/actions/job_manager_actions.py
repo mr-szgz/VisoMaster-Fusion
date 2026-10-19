@@ -1761,13 +1761,17 @@ def refresh_new_jobs(
     main_window: "MainWindow", selected_job_name: str | None = None,
     saved_jobs: dict[str, dict] | None = None,
 ):
-    """Insert only unlisted jobs, preserving existing items and widget sorting."""
+    """Remove missing jobs and insert unlisted jobs, preserving existing items."""
     job_list = main_window.jobQueueList
+    jobs_dir = get_jobs_dir(main_window)
+    for index in range(job_list.count() - 1, -1, -1):
+        job_name = job_list.item(index).data(JobDataRole.JobNameRole)
+        if not (jobs_dir / f"{job_name}.json").exists():
+            job_list.takeItem(index)
     existing_names = {
         job_list.item(index).data(JobDataRole.JobNameRole)
         for index in range(job_list.count())
     }
-    jobs_dir = get_jobs_dir(main_window)
     job_names = list_jobs(main_window) if saved_jobs is None else saved_jobs
     for job_name in job_names:
         if job_name in existing_names:

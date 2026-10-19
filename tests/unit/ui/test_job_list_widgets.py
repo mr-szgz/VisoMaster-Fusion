@@ -473,6 +473,35 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         namespace["refresh_new_jobs"](mw, saved_jobs=saved_jobs)
         assert not queue.isSortingEnabled()
         assert factory.call_count == 252
+        # Removed files are pruned even when the caller supplies only saved jobs.
+        (root / "Alpha.json").unlink()
+        (root / "Zulu.json").unlink()
+        selected_item = queue.currentItem()
+        with patch.object(widgets.cv2, "VideoCapture") as capture:
+            namespace["refresh_new_jobs"](mw, saved_jobs=saved_jobs)
+            capture.assert_not_called()
+        directory_scan.assert_not_called()
+        assert factory.call_count == 252
+        assert queue.count() == 251
+        assert queue.currentItem() is selected_item
+        assert queue.item(queue.row(item)) is item
+        assert not queue.isSortingEnabled()
+        # A regular check removes the selected missing job and adds a new job.
+        (root / f"{new_names[-1]}.json").unlink()
+        (root / "New.json").write_text(json.dumps(job), encoding="utf-8")
+        namespace["list_jobs"] = lambda mw: [p.stem for p in root.glob("*.json")]
+        with patch.object(widgets.cv2, "VideoCapture") as capture:
+            namespace["refresh_new_jobs"](mw)
+            capture.assert_not_called()
+        assert factory.call_count == 253
+        assert queue.count() == 251
+        names = [queue.item(i).text() for i in range(queue.count())]
+        assert "New" in names
+        assert new_names[-1] not in names
+        assert "Alpha" not in names
+        assert "Zulu" not in names
+        assert queue.item(queue.row(item)) is item
+        assert update_buttons.call_count == 6
         path.write_text(json.dumps(job), encoding="utf-8")
     ''')
     result = subprocess.run(
