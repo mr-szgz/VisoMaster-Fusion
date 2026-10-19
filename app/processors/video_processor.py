@@ -2899,6 +2899,8 @@ class VideoProcessor(QObject):
         self.processing = True  # Master flag
         self.triggered_by_job_manager = triggered_by_job_manager
         self.stopped_by_error_limit = False  # Reset error limit flag for new processing
+        self._fatal_processing_error_latched = False
+        self.last_processing_error = None
         # Ensure all elements in 'segments' are strictly tuples of integers.
         sanitized_segments = []
         for seg in segments:
@@ -3215,6 +3217,8 @@ class VideoProcessor(QObject):
             self.temp_segment_files = []
             self.triggered_by_job_manager = False
             self.active_output_folder = ""
+            self.last_processing_error = "No valid recorded segments were found, so no video file was saved."
+            self.processing_stopped_signal.emit()
             return
 
         # 3. Determine final output path

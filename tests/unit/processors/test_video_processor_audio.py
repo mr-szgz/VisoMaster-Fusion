@@ -369,6 +369,7 @@ def _make_finalize_default_style_recording_dummy(
         end_time=0.0,
         file_type="image",
         main_window=SimpleNamespace(
+            is_batch_processing=False,
             control={
                 "OutputMediaFolder": str(tmp_path / "fallback-output"),
                 "AutoSaveWorkspaceToggle": auto_save,
@@ -577,6 +578,7 @@ def _make_finalize_segment_concatenation_dummy(
         end_time=0.0,
         file_type="image",
         main_window=SimpleNamespace(
+            is_batch_processing=False,
             control={
                 "AutoSaveWorkspaceToggle": auto_save,
                 "OpenOutputToggle": False,
@@ -617,6 +619,23 @@ def _patch_segment_finalize_dependencies(monkeypatch, saved_workspaces):
     )
 
 
+def test_finalize_segment_concatenation_notifies_when_no_segments_exist(tmp_path, monkeypatch):
+    dummy = _make_finalize_segment_concatenation_dummy(tmp_path)
+    dummy.main_window.is_batch_processing = False
+    dummy.temp_segment_files = []
+    notifications = []
+    dummy.processing_stopped_signal.emit = lambda: notifications.append(
+        (dummy.processing, dummy.is_processing_segments, dummy.recording,
+         dummy.segments_to_process, dummy.active_output_folder)
+    )
+    _patch_segment_finalize_dependencies(monkeypatch, [])
+
+    VideoProcessor.finalize_segment_concatenation(dummy)
+
+    assert notifications == [(False, False, False, [], "")]
+    assert dummy.last_processing_error == "No valid recorded segments were found, so no video file was saved."
+
+
 def test_finalize_segment_concatenation_autosaves_after_successful_concat(
     tmp_path, monkeypatch
 ):
@@ -633,6 +652,34 @@ def test_finalize_segment_concatenation_autosaves_after_successful_concat(
 
     VideoProcessor.finalize_segment_concatenation(dummy)
 
+    assert saved_workspaces == [f"{final_output}.json"]
+
+
+def test_skip_partial_segment_recording_uses_actual_finalizer(tmp_path, monkeypatch):
+    import threading
+    from unittest.mock import MagicMock
+    from app.ui.widgets.actions.job_manager_actions import JobProcessor
+
+    dummy = _make_finalize_segment_concatenation_dummy(tmp_path, auto_save=True)
+    final_output = tmp_path / "output" / "partial.mp4"
+    saved_workspaces = []
+    dummy.finalize_segment_concatenation = lambda: VideoProcessor.finalize_segment_concatenation(dummy)
+    dummy.stop_processing = MagicMock()
+    worker = SimpleNamespace(
+        skip_requested_event=threading.Event(),
+        main_window=SimpleNamespace(video_processor=dummy),
+    )
+    monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: _RunResult())
+    monkeypatch.setattr(
+        "app.processors.video_processor.misc_helpers.get_output_file_path",
+        lambda *args, **kwargs: str(final_output),
+    )
+    _patch_segment_finalize_dependencies(monkeypatch, saved_workspaces)
+
+    JobProcessor.request_skip(worker, True)
+
+    assert worker.skip_requested_event.is_set()
+    dummy.stop_processing.assert_not_called()
     assert saved_workspaces == [f"{final_output}.json"]
 
 

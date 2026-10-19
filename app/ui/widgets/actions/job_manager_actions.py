@@ -1193,14 +1193,6 @@ def _restore_workspace_from_snapshot(main_window: "MainWindow", data: dict):
 
         print("[INFO] Workspace restored successfully from snapshot.")
 
-    except Exception as e:
-        print(f"[ERROR] Error during workspace snapshot restoration: {e}")
-        traceback.print_exc()
-        QMessageBox.critical(
-            main_window,
-            "Restore Error",
-            f"An error occurred while restoring the workspace:\n{e}",
-        )
     finally:
         _restore_batch_refresh_state(main_window, previous_batch_flag)
         progress_dialog.close()
@@ -1430,7 +1422,7 @@ def update_job_manager_buttons(main_window: "MainWindow"):
 def stop_processing_jobs(main_window: "MainWindow"):
     """Save the current output and stop the active job queue."""
     main_window.job_progress_dialog.stopping()
-    main_window.job_processor.request_stop()
+    main_window.job_processor.run_ui_operation(main_window.job_processor.request_stop)
     update_job_manager_buttons(main_window)
 
 
@@ -1438,7 +1430,8 @@ def cancel_processing_jobs(main_window: "MainWindow"):
     """Interrupt the active job queue without saving current output."""
     main_window.job_progress_dialog.stopping()
     main_window.job_progress_dialog.status_label.setText("Cancelling job processing…")
-    main_window.job_processor.request_cancel(
+    main_window.job_processor.run_ui_operation(
+        main_window.job_processor.request_cancel,
         "Cancelled by user via Cancel button."
     )
     update_job_manager_buttons(main_window)
@@ -2027,6 +2020,9 @@ def handle_batch_completion(main_window: "MainWindow"):
     """
     if not main_window.job_processor:
         return
+    if main_window.job_processor.ui_operation_depth:
+        main_window.job_processor.batch_completion_pending = True
+        return
 
     batch_succeeded = main_window.job_processor.batch_succeeded
     main_window.video_processor.processing_started_signal.disconnect(
@@ -2042,67 +2038,58 @@ def handle_batch_completion(main_window: "MainWindow"):
 
     print(f"[INFO] Batch finished (Success: {batch_succeeded}).")
 
-    # --- Restore Workspace from Snapshot ---
-    snapshot = getattr(main_window, "workspace_snapshot_before_batch", None)
-    if snapshot:
-        print("[INFO] Found workspace snapshot. Restoring...")
-        try:
+    try:
+        # --- Restore Workspace from Snapshot ---
+        snapshot = getattr(main_window, "workspace_snapshot_before_batch", None)
+        if snapshot:
+            print("[INFO] Found workspace snapshot. Restoring...")
             _restore_workspace_from_snapshot(main_window, snapshot)
-        except Exception as e:
-            print(f"[ERROR] Critical error during workspace restore: {e}")
-            traceback.print_exc()
-            QMessageBox.critical(
-                main_window,
-                "Restore Error",
-                f"Failed to restore workspace: {e}\n"
-                "The UI may be in an unstable state. Please restart.",
-            )
-        finally:
-            main_window.workspace_snapshot_before_batch = None  # Clear snapshot
+            main_window.workspace_snapshot_before_batch = None
             print("[INFO] Workspace snapshot cleared.")
-    else:
-        print("[WARN] No workspace snapshot found. UI will remain in its last state.")
-        # (Fallback) Just refresh VRAM, as we can't restore or reset
-        common_widget_actions.update_gpu_memory_progressbar(main_window)
+        else:
+            print("[WARN] No workspace snapshot found. UI will remain in its last state.")
+            # (Fallback) Just refresh VRAM, as we can't restore or reset
+            common_widget_actions.update_gpu_memory_progressbar(main_window)
 
-    main_window.job_progress_dialog.show_result(
-        main_window.job_processor,
-        "Process All" if main_window.job_processing_button is main_window.buttonProcessAll
-        else "Process Selected",
-    )
-    # Clean up the job processor to prevent "zombie listeners"
-    if main_window.job_processor:
-        try:
-            print("[INFO] Disconnecting JobProcessor signals...")
-            # Disconnect signals to stop listening to manual events
-            main_window.video_processor.processing_started_signal.disconnect(
-                main_window.job_processor.handle_processing_started
-            )
-            main_window.video_processor.processing_stopped_signal.disconnect(
-                main_window.job_processor.handle_processing_stopped
-            )
-            main_window.video_processor.processing_heartbeat_signal.disconnect(
-                main_window.job_processor.handle_processing_heartbeat
-            )
-        except RuntimeError as e:
-            # This is normal if signals were not connected or already disconnected
-            print(f"[WARN] Error disconnecting signals (expected if no job ran): {e}")
-        except Exception as e:
-            print(f"[ERROR] Unexpected error disconnecting signals: {e}")
+        main_window.job_progress_dialog.show_result(
+            main_window.job_processor,
+            "Process All" if main_window.job_processing_button is main_window.buttonProcessAll
+            else "Process Selected",
+        )
+    finally:
+        # Clean up the job processor to prevent "zombie listeners"
+        if main_window.job_processor:
+            try:
+                print("[INFO] Disconnecting JobProcessor signals...")
+                # Disconnect signals to stop listening to manual events
+                main_window.video_processor.processing_started_signal.disconnect(
+                    main_window.job_processor.handle_processing_started
+                )
+                main_window.video_processor.processing_stopped_signal.disconnect(
+                    main_window.job_processor.handle_processing_stopped
+                )
+                main_window.video_processor.processing_heartbeat_signal.disconnect(
+                    main_window.job_processor.handle_processing_heartbeat
+                )
+            except RuntimeError as e:
+                # This is normal if signals were not connected or already disconnected
+                print(f"[WARN] Error disconnecting signals (expected if no job ran): {e}")
+            except Exception as e:
+                print(f"[ERROR] Unexpected error disconnecting signals: {e}")
 
-        # Set the object to None to allow the garbage collector to remove it
-        main_window.job_processor = None
-        print("[INFO] JobProcessor cleaned up.")
+            # Set the object to None to allow the garbage collector to remove it
+            main_window.job_processor = None
+            print("[INFO] JobProcessor cleaned up.")
 
-    main_window.job_processing_button.setChecked(False)
-    main_window.job_processing_button.setCheckable(False)
-    main_window.job_processing_button.setToolTip("")
-    main_window.buttonProcessAll.setText("Process All")
-    main_window.buttonProcessSelected.setText("Process Selected")
-    main_window.job_progress_dialog.deleteLater()
-    main_window.job_progress_dialog = None
-    main_window.job_processing_button = None
-    update_job_manager_buttons(main_window)
+        main_window.job_processing_button.setChecked(False)
+        main_window.job_processing_button.setCheckable(False)
+        main_window.job_processing_button.setToolTip("")
+        main_window.buttonProcessAll.setText("Process All")
+        main_window.buttonProcessSelected.setText("Process Selected")
+        main_window.job_progress_dialog.deleteLater()
+        main_window.job_progress_dialog = None
+        main_window.job_processing_button = None
+        update_job_manager_buttons(main_window)
 
 
 # --- Job Processing Thread ---
@@ -2186,7 +2173,9 @@ def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | 
     )
     dialog.stopRequested.connect(lambda: stop_processing_jobs(main_window))
     dialog.cancelRequested.connect(lambda: cancel_processing_jobs(main_window))
-    dialog.skipRequested.connect(main_window.job_processor.request_skip)
+    dialog.skipRequested.connect(
+        lambda save: main_window.job_processor.run_ui_operation(main_window.job_processor.request_skip, save)
+    )
     dialog.stop_after_completion_checkbox.toggled.connect(
         main_window.job_processor.set_stop_after_current
     )
@@ -2203,15 +2192,16 @@ def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | 
     main_window.video_processor.processing_stopped_signal.connect(dialog.processing_stopped)
 
     # Connect signals from the worker thread to slots in the main thread
-    # Connect signals for new batch-loading process
+    # Timed worker waits remain asynchronous. Defer restoration until active
+    # UI operations have returned, including any nested event loops.
     main_window.job_processor.load_master_assets_signal.connect(
-        lambda assets: load_master_assets(main_window, assets)
+        lambda assets: main_window.job_processor.run_ui_operation(load_master_assets, main_window, assets)
     )
     main_window.job_processor.load_job_settings_signal.connect(
-        lambda settings: load_job_settings(main_window, settings)
+        lambda settings: main_window.job_processor.run_ui_operation(load_job_settings, main_window, settings)
     )
     main_window.job_processor.clear_job_settings_signal.connect(
-        lambda: clear_job_settings(main_window)
+        lambda: main_window.job_processor.run_ui_operation(clear_job_settings, main_window)
     )
 
     # Connect signals for job completion
@@ -2295,6 +2285,8 @@ class JobProcessor(QThread):
         )
         self.batch_cancelled = False
         self.batch_stopped = False
+        self.ui_operation_depth = 0
+        self.batch_completion_pending = False
         self.skipped_jobs: list[str] = []  # Store jobs that fail pre-flight checks
 
         self.completed_dir.mkdir(parents=True, exist_ok=True)
@@ -2362,7 +2354,7 @@ class JobProcessor(QThread):
         else:
             print("[INFO] JobProcessor cancellation requested.")
 
-        # Unblock all wait points so run() can exit quickly.
+        # Unblock worker waits; active UI operations still finish before restoration.
         self.master_assets_loaded_event.set()
         self.job_settings_loaded_event.set()
         self.job_settings_cleared_event.set()
@@ -2379,7 +2371,9 @@ class JobProcessor(QThread):
     def request_skip(self, save_partial: bool):
         self.skip_requested_event.set()
         processor = self.main_window.video_processor
-        if save_partial and processor.recording:
+        if save_partial and processor.is_processing_segments:
+            processor.finalize_segment_concatenation()
+        elif save_partial and processor.recording:
             processor._finalize_default_style_recording()
         elif processor.processing or processor.is_processing_segments:
             processor.stop_processing()
@@ -2387,6 +2381,7 @@ class JobProcessor(QThread):
     def request_stop(self):
         self.batch_stopped = True
         self.stop_requested_event.set()
+        self.processing_started_event.set()  # Also wake before queued startup runs.
         video_processor = self.main_window.video_processor
         if video_processor.is_processing_segments:
             video_processor.finalize_segment_concatenation()
@@ -2570,6 +2565,27 @@ class JobProcessor(QThread):
         self.job_data_list = valid_job_data_list  # Store *only* the valid jobs
         return master_data
 
+    def run_ui_operation(self, operation, *args):
+        self.ui_operation_depth += 1
+        try:
+            return operation(*args)
+        finally:
+            self.ui_operation_depth -= 1
+            if not self.ui_operation_depth and self.batch_completion_pending:
+                self.batch_completion_pending = False
+                handle_batch_completion(self.main_window)
+
+    @Slot()
+    def start_job_recording(self):
+        if self.cancel_requested_event.is_set() or self.stop_requested_event.is_set():
+            return
+        self.main_window.job_manager_initiated_record = True
+        self.run_ui_operation(self.main_window.buttonMediaRecord.toggle)
+
+    @Slot()
+    def stop_job_recording(self):
+        self.run_ui_operation(self.main_window.video_processor.stop_processing)
+
     def _trigger_and_wait_for_processing(self, job_name: str) -> bool:
         """
         Triggers the record button and waits for processing to start and stop.
@@ -2580,34 +2596,28 @@ class JobProcessor(QThread):
         self.processing_started_event.clear()
         self.processing_stopped_event.clear()
 
-        # Mark that this recording was initiated by the Job Manager
-        self.main_window.job_manager_initiated_record = True
-
-        # Toggle the button (thread-safe UI call)
+        # Record startup participates in the same UI lifecycle as workspace loading.
         QMetaObject.invokeMethod(
-            self.main_window.buttonMediaRecord, "toggle", Qt.QueuedConnection
+            self, "start_job_recording", Qt.QueuedConnection
         )
 
         # --- Wait for Processing to Start ---
-        if self.cancel_requested_event.is_set():
-            print("[INFO] Cancel requested before processing start wait.")
+        if self.cancel_requested_event.is_set() or self.stop_requested_event.is_set():
+            print("[INFO] Batch interrupted before processing start wait.")
             return False
 
         if not self.processing_started_event.wait(timeout=self.JOB_START_TIMEOUT):
-            if self.cancel_requested_event.is_set():
-                print("[INFO] Processing start wait interrupted by cancellation.")
+            if self.cancel_requested_event.is_set() or self.stop_requested_event.is_set():
+                print("[INFO] Processing start wait interrupted by batch stop or cancellation.")
                 return False
             error_msg = "Timeout waiting for processing to start signal."
             print(f"[ERROR] {error_msg}")
-            # Attempt to toggle off the record button if it got stuck
-            if self.main_window.buttonMediaRecord.isChecked():
-                print("[WARN] Attempting to toggle record button off due to timeout.")
-                QMetaObject.invokeMethod(
-                    self.main_window.buttonMediaRecord, "toggle", Qt.QueuedConnection
-                )
-            self.main_window.video_processor.stop_processing()
+            QMetaObject.invokeMethod(self, "stop_job_recording", Qt.QueuedConnection)
             self.job_failed_signal.emit(job_name, error_msg)
             return False  # Failure
+
+        if self.stop_requested_event.is_set():
+            return False
 
         # --- Wait for Processing to Complete (with Heartbeat Watchdog) ---
         print(
@@ -2672,7 +2682,9 @@ class JobProcessor(QThread):
         processing_error = getattr(
             self.main_window.video_processor, "last_processing_error", None
         )
-        if processing_error and not self.skip_requested_event.is_set():
+        if processing_error and not (
+            self.skip_requested_event.is_set() or self.stop_requested_event.is_set()
+        ):
             self.job_failed_signal.emit(job_name, processing_error)
             return False
 
@@ -2768,6 +2780,8 @@ class JobProcessor(QThread):
             if self.stop_requested_event.is_set():
                 break
             if not self._trigger_and_wait_for_processing(job_name):
+                if self.stop_requested_event.is_set():
+                    break
                 if self.cancel_requested_event.is_set():
                     print(
                         f"[INFO] Batch cancelled during processing of job '{job_name}'."
