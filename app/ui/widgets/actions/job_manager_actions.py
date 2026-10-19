@@ -1403,6 +1403,7 @@ def update_job_manager_buttons(main_window: "MainWindow"):
     selected_count = len(job_list.selectedItems()) if job_list else 0
     job_count = job_list.count() if job_list else 0
     running = main_window.job_progress_dialog is not None
+    main_window.smartJobListButton.setEnabled(not running)
 
     enable_on_multi_selection = selected_count > 0
     enable_on_single_selection = selected_count == 1
@@ -1472,6 +1473,9 @@ def setup_job_manager_ui(main_window: "MainWindow"):
     )
     main_window.checkNewJobListButton = main_window.findChild(
         QtWidgets.QPushButton, "checkNewJobListButton"
+    )
+    main_window.smartJobListButton = main_window.findChild(
+        QtWidgets.QPushButton, "smartJobListButton"
     )
 
     # Enable multi-selection for the job list
@@ -1705,6 +1709,9 @@ def connect_job_manager_signals(main_window: "MainWindow"):
     main_window.checkNewJobListButton.clicked.connect(
         lambda: refresh_new_jobs(main_window)
     )
+    main_window.smartJobListButton.clicked.connect(
+        lambda: check_jobs_smart(main_window)
+    )
     if main_window.jobQueueList:
         main_window.jobQueueList.setContextMenuPolicy(Qt.CustomContextMenu)
         main_window.jobQueueList.customContextMenuRequested.connect(
@@ -1713,6 +1720,14 @@ def connect_job_manager_signals(main_window: "MainWindow"):
         main_window.jobQueueList.itemSelectionChanged.connect(
             lambda: update_job_manager_buttons(main_window)
         )
+
+
+def check_jobs_smart(main_window: "MainWindow"):
+    from app.ui.widgets.job_smart_check_dialog import JobSmartCheckDialog
+
+    dialog = JobSmartCheckDialog(main_window, list_jobs(main_window))
+    dialog.exec()
+    dialog.deleteLater()
 
 
 def change_job_list_label_template(main_window: "MainWindow", value: str) -> None:
@@ -2240,6 +2255,8 @@ class JobProcessor(QThread):
     job_failed_signal = Signal(str, str)
     queue_ready_signal = Signal(int, int)
     job_started_signal = Signal(str, int)
+    analysis_started_signal = Signal(str)
+    analysis_result_signal = Signal(str, str)
 
     # --- JobProcessor Timeouts (in seconds) ---
     JOB_START_TIMEOUT = 30  # Max time to wait for the video processor to start
@@ -2439,12 +2456,16 @@ class JobProcessor(QThread):
         self.skipped_jobs.clear()  # Clear skipped list for this batch
 
         for job_name in self.jobs:
+            self.analysis_started_signal.emit(job_name)
             data = self._read_job_file(job_name)
             if data is None:
                 # _read_job_file already emitted a failure signal, but we also
                 # add it to the skipped list for the final report.
                 self.skipped_jobs.append(
                     f"{job_name}: Job file could not be read or parsed."
+                )
+                self.analysis_result_signal.emit(
+                    job_name, "Job file could not be read or parsed."
                 )
                 continue  # Skip to the next job
 
@@ -2455,6 +2476,7 @@ class JobProcessor(QThread):
             if not is_job_valid:
                 print(f"[WARN] Skipping job '{job_name}'. Reason: {skip_reason}")
                 self.skipped_jobs.append(f"{job_name}: {skip_reason}")
+                self.analysis_result_signal.emit(job_name, skip_reason)
                 continue  # Skip this job
 
             # --- 2. Job is valid, now COLLECT unique assets ---
@@ -2532,6 +2554,7 @@ class JobProcessor(QThread):
 
             # --- 3. Add valid job to processing list ---
             valid_job_data_list.append(data)
+            self.analysis_result_signal.emit(job_name, "")
 
         print("[INFO] Smart Analysis complete:")
         print(f"  - {len(valid_job_data_list)} jobs are valid and will be processed.")

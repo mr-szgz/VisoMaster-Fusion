@@ -37,7 +37,7 @@ def test_job_transition_and_final_report(tmp_path):
             window.job_marker_pairs = []
             window.job_progress_dialog = None
             window.job_processing_button = None
-            for name in ("buttonProcessAll", "buttonProcessSelected", "buttonStopProcessing", "loadJobButton", "deleteJobButton"):
+            for name in ("buttonProcessAll", "buttonProcessSelected", "buttonStopProcessing", "loadJobButton", "deleteJobButton", "smartJobListButton"):
                 setattr(window, name, QtWidgets.QPushButton(name, window))
             items = {}
             for name in ("A", "B", "C"):

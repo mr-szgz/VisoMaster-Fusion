@@ -113,6 +113,7 @@ def test_job_progress_lifecycle(tmp_path):
                     ("addJobButton", "Save Job"), ("loadJobButton", "Load Job"),
                     ("deleteJobButton", "Delete Job"), ("refreshJobListButton", "Refresh"),
                     ("checkNewJobListButton", "Check for New"),
+                    ("smartJobListButton", "S.M.A.R.T"),
                 ):
                     setattr(window, attr, QtWidgets.QPushButton(label, window))
                 for name, fps in (("A", 25.0), ("B", 0.0)):
@@ -185,6 +186,7 @@ def test_job_progress_lifecycle(tmp_path):
                     assert not window.loadJobButton.isEnabled()
                     assert not window.deleteJobButton.isEnabled()
                     assert window.buttonStopProcessing.isEnabled()
+                    assert not window.smartJobListButton.isEnabled()
                     if outcome == "load_failure":
                         wait_for(lambda: window.job_progress_dialog is None)
                         assert "Job Processing Failed" in reports
@@ -245,6 +247,7 @@ def test_job_progress_lifecycle(tmp_path):
                     assert window.buttonProcessAll.text() == "Process All"
                     assert window.buttonProcessSelected.text() == "Process Selected"
                     assert not window.buttonStopProcessing.isEnabled()
+                    assert window.smartJobListButton.isEnabled()
                     assert window.job_processing_button is None
                     assert window.batch_progress_dialog is batch_dialog
                     assert window.is_batch_processing is False

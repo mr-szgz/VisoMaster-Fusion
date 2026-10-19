@@ -848,6 +848,11 @@ class Ui_MainWindow(object):
 
         self.jobHorizontalLayout_4.addWidget(self.checkNewJobListButton)
 
+        self.smartJobListButton = QPushButton(self.dockWidgetContents_JobManager)
+        self.smartJobListButton.setObjectName(u"smartJobListButton")
+
+        self.jobHorizontalLayout_4.addWidget(self.smartJobListButton)
+
 
         self.verticalLayout_JobManager.addLayout(self.jobHorizontalLayout_4)
 
@@ -1264,7 +1269,8 @@ class Ui_MainWindow(object):
         self.loadJobButton.setText(QCoreApplication.translate("MainWindow", u"Load Job", None))
         self.deleteJobButton.setText(QCoreApplication.translate("MainWindow", u"Delete Job", None))
         self.refreshJobListButton.setText(QCoreApplication.translate("MainWindow", u"Refresh Job List", None))
-        self.checkNewJobListButton.setText(QCoreApplication.translate("MainWindow", u"Check for New", None))
+        self.checkNewJobListButton.setText(QCoreApplication.translate("MainWindow", u"Check for Jobs", None))
+        self.smartJobListButton.setText(QCoreApplication.translate("MainWindow", u"S.M.A.R.T", None))
         self.jobDisplayLabel.setText(QCoreApplication.translate("MainWindow", u"Format", None))
         self.jobListLabelTemplateComboBox.setItemText(0, QCoreApplication.translate("MainWindow", u"{duration_text} {job_name}", None))
         self.jobListLabelTemplateComboBox.setItemText(1, QCoreApplication.translate("MainWindow", u"{duration_text} {embedding_names}", None))

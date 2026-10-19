@@ -1470,7 +1470,14 @@
        <item>
         <widget class="QPushButton" name="checkNewJobListButton">
          <property name="text">
-          <string>Check for New</string>
+          <string>Check for Jobs</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="smartJobListButton">
+         <property name="text">
+          <string>S.M.A.R.T</string>
          </property>
         </widget>
        </item>
