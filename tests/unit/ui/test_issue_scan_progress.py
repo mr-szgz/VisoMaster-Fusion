@@ -227,6 +227,8 @@ def _make_scan_main_window(keep_controls=False):
         loadJobButton=_DummyButton("Load Job"),
         buttonProcessAll=_DummyButton("Process All"),
         buttonProcessSelected=_DummyButton("Process Selected"),
+        buttonProcessAllSimilar=_DummyButton("Process Similar"),
+        buttonProcessSelectedSimilar=_DummyButton("Process Similar (0)"),
         actionLoad_SavedWorkspace=_DummyButton("Load Workspace"),
         actionOpen_Videos_Folder=_DummyButton("Open Videos Folder"),
         actionOpen_Video_Files=_DummyButton("Open Video Files"),
@@ -715,6 +717,8 @@ def test_run_issue_scan_disables_controls_like_recording_when_keep_controls_off(
     assert main_window.loadJobButton.enabled is False
     assert main_window.buttonProcessAll.enabled is False
     assert main_window.buttonProcessSelected.enabled is False
+    assert main_window.buttonProcessAllSimilar.enabled is False
+    assert main_window.buttonProcessSelectedSimilar.enabled is False
     assert main_window.actionLoad_SavedWorkspace.enabled is False
     assert main_window.prevIssueButton.enabled is False
     assert main_window.nextIssueButton.enabled is False

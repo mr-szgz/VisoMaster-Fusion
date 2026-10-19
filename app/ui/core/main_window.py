@@ -33,7 +33,7 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(1768, 837)
+        MainWindow.resize(1768, 890)
         font = QFont()
         font.setPointSize(10)
         MainWindow.setFont(font)
@@ -810,58 +810,53 @@ class Ui_MainWindow(object):
         MainWindow.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.input_Faces_DockWidget)
         self.jobManagerDockWidget = QDockWidget(MainWindow)
         self.jobManagerDockWidget.setObjectName(u"jobManagerDockWidget")
-        self.jobManagerDockWidget.setMinimumSize(QSize(442, 282))
+        self.jobManagerDockWidget.setMinimumSize(QSize(442, 335))
         self.jobManagerDockWidget.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetFloatable|QDockWidget.DockWidgetFeature.DockWidgetMovable)
         self.dockWidgetContents_JobManager = QWidget()
         self.dockWidgetContents_JobManager.setObjectName(u"dockWidgetContents_JobManager")
         self.verticalLayout_JobManager = QVBoxLayout(self.dockWidgetContents_JobManager)
         self.verticalLayout_JobManager.setObjectName(u"verticalLayout_JobManager")
-        self.jobControlLayout = QHBoxLayout()
+        self.jobControlLayout = QGridLayout()
         self.jobControlLayout.setObjectName(u"jobControlLayout")
-        self.addJobButton = QPushButton(self.dockWidgetContents_JobManager)
-        self.addJobButton.setObjectName(u"addJobButton")
+        self.deleteJobButton = QPushButton(self.dockWidgetContents_JobManager)
+        self.deleteJobButton.setObjectName(u"deleteJobButton")
 
-        self.jobControlLayout.addWidget(self.addJobButton)
+        self.jobControlLayout.addWidget(self.deleteJobButton, 0, 2, 1, 1)
 
         self.loadJobButton = QPushButton(self.dockWidgetContents_JobManager)
         self.loadJobButton.setObjectName(u"loadJobButton")
 
-        self.jobControlLayout.addWidget(self.loadJobButton)
+        self.jobControlLayout.addWidget(self.loadJobButton, 0, 1, 1, 1)
 
-        self.deleteJobButton = QPushButton(self.dockWidgetContents_JobManager)
-        self.deleteJobButton.setObjectName(u"deleteJobButton")
+        self.addJobButton = QPushButton(self.dockWidgetContents_JobManager)
+        self.addJobButton.setObjectName(u"addJobButton")
 
-        self.jobControlLayout.addWidget(self.deleteJobButton)
+        self.jobControlLayout.addWidget(self.addJobButton, 0, 0, 1, 1)
 
-
-        self.verticalLayout_JobManager.addLayout(self.jobControlLayout)
-
-        self.jobHorizontalLayout_4 = QHBoxLayout()
-        self.jobHorizontalLayout_4.setObjectName(u"jobHorizontalLayout_4")
         self.refreshJobListButton = QPushButton(self.dockWidgetContents_JobManager)
         self.refreshJobListButton.setObjectName(u"refreshJobListButton")
 
-        self.jobHorizontalLayout_4.addWidget(self.refreshJobListButton)
+        self.jobControlLayout.addWidget(self.refreshJobListButton, 1, 0, 1, 1)
 
         self.checkNewJobListButton = QPushButton(self.dockWidgetContents_JobManager)
         self.checkNewJobListButton.setObjectName(u"checkNewJobListButton")
 
-        self.jobHorizontalLayout_4.addWidget(self.checkNewJobListButton)
+        self.jobControlLayout.addWidget(self.checkNewJobListButton, 1, 1, 1, 1)
 
         self.smartJobListButton = QPushButton(self.dockWidgetContents_JobManager)
         self.smartJobListButton.setObjectName(u"smartJobListButton")
 
-        self.jobHorizontalLayout_4.addWidget(self.smartJobListButton)
+        self.jobControlLayout.addWidget(self.smartJobListButton, 1, 2, 1, 1)
 
 
-        self.verticalLayout_JobManager.addLayout(self.jobHorizontalLayout_4)
+        self.verticalLayout_JobManager.addLayout(self.jobControlLayout)
 
-        self.formLayout = QFormLayout()
-        self.formLayout.setObjectName(u"formLayout")
+        self.jobControlLayout_2 = QFormLayout()
+        self.jobControlLayout_2.setObjectName(u"jobControlLayout_2")
         self.jobDisplayLabel = QLabel(self.dockWidgetContents_JobManager)
         self.jobDisplayLabel.setObjectName(u"jobDisplayLabel")
 
-        self.formLayout.setWidget(0, QFormLayout.ItemRole.LabelRole, self.jobDisplayLabel)
+        self.jobControlLayout_2.setWidget(0, QFormLayout.ItemRole.LabelRole, self.jobDisplayLabel)
 
         self.jobListLabelTemplateComboBox = QComboBox(self.dockWidgetContents_JobManager)
         self.jobListLabelTemplateComboBox.addItem("")
@@ -874,10 +869,10 @@ class Ui_MainWindow(object):
         self.jobListLabelTemplateComboBox.addItem("")
         self.jobListLabelTemplateComboBox.setObjectName(u"jobListLabelTemplateComboBox")
 
-        self.formLayout.setWidget(0, QFormLayout.ItemRole.FieldRole, self.jobListLabelTemplateComboBox)
+        self.jobControlLayout_2.setWidget(0, QFormLayout.ItemRole.FieldRole, self.jobListLabelTemplateComboBox)
 
 
-        self.verticalLayout_JobManager.addLayout(self.formLayout)
+        self.verticalLayout_JobManager.addLayout(self.jobControlLayout_2)
 
         self.jobQueueList = JobQueueListWidget(self.dockWidgetContents_JobManager)
         QListWidgetItem(self.jobQueueList)
@@ -886,23 +881,35 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_JobManager.addWidget(self.jobQueueList)
 
-        self.processControlLayout = QHBoxLayout()
+        self.processControlLayout = QGridLayout()
         self.processControlLayout.setObjectName(u"processControlLayout")
-        self.buttonProcessAll = QPushButton(self.dockWidgetContents_JobManager)
-        self.buttonProcessAll.setObjectName(u"buttonProcessAll")
-
-        self.processControlLayout.addWidget(self.buttonProcessAll)
-
         self.buttonProcessSelected = QPushButton(self.dockWidgetContents_JobManager)
         self.buttonProcessSelected.setObjectName(u"buttonProcessSelected")
 
-        self.processControlLayout.addWidget(self.buttonProcessSelected)
+        self.processControlLayout.addWidget(self.buttonProcessSelected, 0, 1, 1, 1)
+
+        self.buttonProcessAll = QPushButton(self.dockWidgetContents_JobManager)
+        self.buttonProcessAll.setObjectName(u"buttonProcessAll")
+
+        self.processControlLayout.addWidget(self.buttonProcessAll, 0, 0, 1, 1)
 
         self.buttonStopProcessing = QPushButton(self.dockWidgetContents_JobManager)
         self.buttonStopProcessing.setObjectName(u"buttonStopProcessing")
         self.buttonStopProcessing.setEnabled(False)
 
-        self.processControlLayout.addWidget(self.buttonStopProcessing)
+        self.processControlLayout.addWidget(self.buttonStopProcessing, 0, 2, 1, 1)
+
+        self.buttonProcessSelectedSimilar = QPushButton(self.dockWidgetContents_JobManager)
+        self.buttonProcessSelectedSimilar.setObjectName(u"buttonProcessSelectedSimilar")
+        self.buttonProcessSelectedSimilar.setEnabled(False)
+
+        self.processControlLayout.addWidget(self.buttonProcessSelectedSimilar, 1, 1, 1, 1)
+
+        self.buttonProcessAllSimilar = QPushButton(self.dockWidgetContents_JobManager)
+        self.buttonProcessAllSimilar.setObjectName(u"buttonProcessAllSimilar")
+        self.buttonProcessAllSimilar.setEnabled(False)
+
+        self.processControlLayout.addWidget(self.buttonProcessAllSimilar, 1, 0, 1, 1)
 
 
         self.verticalLayout_JobManager.addLayout(self.processControlLayout)
@@ -1265,9 +1272,9 @@ class Ui_MainWindow(object):
         self.buttonInputFacesPath.setText("")
         self.inputFacesSearchBox.setPlaceholderText(QCoreApplication.translate("MainWindow", u"Search Faces", None))
         self.jobManagerDockWidget.setWindowTitle(QCoreApplication.translate("MainWindow", u"Job Manager", None))
-        self.addJobButton.setText(QCoreApplication.translate("MainWindow", u"Save Job", None))
-        self.loadJobButton.setText(QCoreApplication.translate("MainWindow", u"Load Job", None))
         self.deleteJobButton.setText(QCoreApplication.translate("MainWindow", u"Delete Job", None))
+        self.loadJobButton.setText(QCoreApplication.translate("MainWindow", u"Load Job", None))
+        self.addJobButton.setText(QCoreApplication.translate("MainWindow", u"Save Job", None))
         self.refreshJobListButton.setText(QCoreApplication.translate("MainWindow", u"Refresh Job List", None))
         self.checkNewJobListButton.setText(QCoreApplication.translate("MainWindow", u"Check for Jobs", None))
         self.smartJobListButton.setText(QCoreApplication.translate("MainWindow", u"S.M.A.R.T", None))
@@ -1294,9 +1301,11 @@ class Ui_MainWindow(object):
 #endif // QT_CONFIG(tooltip)
         self.jobQueueList.setSortingEnabled(__sortingEnabled)
 
+        self.buttonProcessSelected.setText(QCoreApplication.translate("MainWindow", u"Process (0)", None))
         self.buttonProcessAll.setText(QCoreApplication.translate("MainWindow", u"Process All", None))
-        self.buttonProcessSelected.setText(QCoreApplication.translate("MainWindow", u"Process Selected", None))
         self.buttonStopProcessing.setText(QCoreApplication.translate("MainWindow", u"Stop Processing", None))
+        self.buttonProcessSelectedSimilar.setText(QCoreApplication.translate("MainWindow", u"Process Similar (0)", None))
+        self.buttonProcessAllSimilar.setText(QCoreApplication.translate("MainWindow", u"Process Similar", None))
         self.controlOptionsDockWidget.setWindowTitle(QCoreApplication.translate("MainWindow", u"Parameters", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.face_swap_tab), QCoreApplication.translate("MainWindow", u"Face Swap", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.face_editor_tab), QCoreApplication.translate("MainWindow", u"Face Editor", None))

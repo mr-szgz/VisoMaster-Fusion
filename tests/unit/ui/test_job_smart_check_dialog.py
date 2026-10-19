@@ -35,7 +35,7 @@ def test_smart_scan_report_and_cleanup(tmp_path, theme, scale):
         ui.jobQueueList.clear()
         assert ui.checkNewJobListButton.text() == "Check for Jobs"
         assert ui.smartJobListButton.text() == "S.M.A.R.T"
-        for name in ("jobQueueList", "buttonProcessAll", "buttonProcessSelected",
+        for name in ("jobQueueList", "buttonProcessAll", "buttonProcessSelected", "buttonProcessSelectedSimilar", "buttonProcessAllSimilar",
                      "buttonStopProcessing", "loadJobButton", "deleteJobButton",
                      "smartJobListButton", "checkNewJobListButton", "refreshJobListButton",
                      "addJobButton", "jobListLabelTemplateComboBox"):

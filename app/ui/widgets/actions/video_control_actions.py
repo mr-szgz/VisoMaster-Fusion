@@ -1076,6 +1076,8 @@ def _get_issue_scan_mutation_lock_targets(main_window: "MainWindow") -> list:
         "loadJobButton",
         "buttonProcessAll",
         "buttonProcessSelected",
+        "buttonProcessAllSimilar",
+        "buttonProcessSelectedSimilar",
         "actionLoad_SavedWorkspace",
         "actionOpen_Videos_Folder",
         "actionOpen_Video_Files",

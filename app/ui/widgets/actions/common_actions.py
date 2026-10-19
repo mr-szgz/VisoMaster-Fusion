@@ -28,7 +28,9 @@ for _layout_source in [SETTINGS_LAYOUT_DATA, COMMON_LAYOUT_DATA, DENOISER_LAYOUT
 def suppress_batch_notifications(display):
     @wraps(display)
     def show(main_window, *args, **kwargs):
-        if main_window.is_batch_processing and any(checkbox.isChecked() for checkbox in main_window.findChildren(
+        if (main_window.is_batch_processing or main_window.findChild(
+            QtWidgets.QDialog, "jobProgressDialog"
+        ) is not None) and any(checkbox.isChecked() for checkbox in main_window.findChildren(
             QtWidgets.QCheckBox, "suppressBatchNotificationsCheckbox"
         )):
             return

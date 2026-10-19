@@ -1396,15 +1396,23 @@ def update_job_manager_buttons(main_window: "MainWindow"):
     job_count = job_list.count() if job_list else 0
     running = main_window.job_progress_dialog is not None
     main_window.smartJobListButton.setEnabled(not running)
+    for button, label, count, tooltip in (
+        (main_window.buttonProcessSelected, f"Process ({selected_count})", selected_count,
+         "Process the selected jobs"),
+        (main_window.buttonProcessSelectedSimilar, f"Process Similar ({selected_count})", selected_count,
+         "Review similarities among the selected jobs"),
+        (main_window.buttonProcessAllSimilar, "Process Similar", job_count,
+         "Review similarities among all jobs in the queue"),
+    ):
+        active = running and main_window.job_processing_button is button
+        if not active:
+            button.setText(label)
+        button.setEnabled(active if running else count > 0)
+        button.setToolTip("Click to open the job processing dialog" if active else tooltip)
 
     enable_on_multi_selection = selected_count > 0
     enable_on_single_selection = selected_count == 1
 
-    if hasattr(main_window, "buttonProcessSelected"):
-        main_window.buttonProcessSelected.setEnabled(
-            main_window.job_processing_button is main_window.buttonProcessSelected
-            if running else enable_on_multi_selection
-        )
     main_window.buttonStopProcessing.setEnabled(
         running and not main_window.job_processor.cancel_requested_event.is_set()
         and not main_window.job_processor.stop_requested_event.is_set()
@@ -1705,6 +1713,12 @@ def connect_job_manager_signals(main_window: "MainWindow"):
     main_window.smartJobListButton.clicked.connect(
         lambda: check_jobs_smart(main_window)
     )
+    main_window.buttonProcessSelectedSimilar.clicked.connect(
+        lambda: prepare_similar_jobs(main_window, selected_only=True)
+    )
+    main_window.buttonProcessAllSimilar.clicked.connect(
+        lambda: prepare_similar_jobs(main_window, selected_only=False)
+    )
     if main_window.jobQueueList:
         main_window.jobQueueList.setContextMenuPolicy(Qt.CustomContextMenu)
         main_window.jobQueueList.customContextMenuRequested.connect(
@@ -1713,6 +1727,30 @@ def connect_job_manager_signals(main_window: "MainWindow"):
         main_window.jobQueueList.itemSelectionChanged.connect(
             lambda: update_job_manager_buttons(main_window)
         )
+
+
+def prepare_similar_jobs(main_window: "MainWindow", selected_only: bool):
+    from app.ui.widgets.job_similarity_dialog import JobSimilarityDialog
+
+    if main_window.job_progress_dialog is not None:
+        main_window.job_processing_button.setChecked(True)
+        main_window.job_progress_dialog.showNormal()
+        main_window.job_progress_dialog.raise_()
+        main_window.job_progress_dialog.activateWindow()
+        return
+    if video_control_actions.block_if_issue_scan_active(main_window, "review similar jobs"):
+        return
+    jobs = get_selected_jobs(main_window) if selected_only else [
+        main_window.jobQueueList.item(index).data(JobDataRole.JobNameRole)
+        for index in range(main_window.jobQueueList.count())
+    ]
+    dialog = JobSimilarityDialog(main_window, jobs)
+    result = dialog.exec()
+    jobs_to_process = dialog.jobs_to_process
+    dialog.deleteLater()
+    if result == QtWidgets.QDialog.Accepted:
+        button = main_window.buttonProcessSelectedSimilar if selected_only else main_window.buttonProcessAllSimilar
+        start_job_processor(main_window, jobs_to_process, processing_button=button)
 
 
 def check_jobs_smart(main_window: "MainWindow"):
@@ -2057,8 +2095,12 @@ def handle_batch_completion(main_window: "MainWindow"):
 
         main_window.job_progress_dialog.show_result(
             main_window.job_processor,
-            "Process All" if main_window.job_processing_button is main_window.buttonProcessAll
-            else "Process Selected",
+            {
+                main_window.buttonProcessAll: "Process All",
+                main_window.buttonProcessSelected: "Process Selected",
+                main_window.buttonProcessAllSimilar: "Process Similar",
+                main_window.buttonProcessSelectedSimilar: "Process Similar (Selected)",
+            }[main_window.job_processing_button],
         )
     finally:
         # Clean up the job processor to prevent "zombie listeners"
@@ -2089,7 +2131,6 @@ def handle_batch_completion(main_window: "MainWindow"):
         main_window.job_processing_button.setCheckable(False)
         main_window.job_processing_button.setToolTip("")
         main_window.buttonProcessAll.setText("Process All")
-        main_window.buttonProcessSelected.setText("Process Selected")
         main_window.job_progress_dialog.deleteLater()
         main_window.job_progress_dialog = None
         main_window.job_processing_button = None
@@ -2140,7 +2181,10 @@ def start_processing_all_jobs(main_window: "MainWindow"):
     start_job_processor(main_window, jobs_to_process=None)  # None means all jobs
 
 
-def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | None):
+def start_job_processor(
+    main_window: "MainWindow", jobs_to_process: list[str] | None,
+    processing_button: QtWidgets.QPushButton | None = None,
+):
     """
     Helper function to create, connect, and start the JobProcessor thread.
     """
@@ -2162,15 +2206,16 @@ def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | 
             job_items[job_name] = QtWidgets.QListWidgetItem(item)
     dialog = JobProgressDialog(main_window, job_items)
     main_window.job_progress_dialog = dialog
-    button = (
-        main_window.buttonProcessAll if jobs_to_process is None
-        else main_window.buttonProcessSelected
-    )
+    button = processing_button
+    if button is None:
+        button = main_window.buttonProcessAll if jobs_to_process is None else main_window.buttonProcessSelected
     main_window.job_processing_button = button
     button.setCheckable(True)
     button.setChecked(True)
     button.setToolTip("Click to open the job processing dialog")
-    command = "Show Jobs Progress"
+    command = "Process Similar" if button in (
+        main_window.buttonProcessAllSimilar, main_window.buttonProcessSelectedSimilar
+    ) else "Process"
     button.setText(f"{command} (0/{len(job_items)})")
     dialog.progressChanged.connect(
         lambda current, total: button.setText(f"{command} ({current}/{total})")
@@ -2185,6 +2230,19 @@ def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | 
     )
     main_window.job_processor.set_stop_after_current(
         dialog.stop_after_completion_checkbox.isChecked()
+    )
+    dialog.stop_after_processing_checkbox.toggled.connect(
+        lambda: main_window.job_processor.set_processing_limit(
+            dialog.stop_after_processing_checkbox.isChecked(), dialog.stop_after_processing_spinbox.value()
+        )
+    )
+    dialog.stop_after_processing_spinbox.valueChanged.connect(
+        lambda: main_window.job_processor.set_processing_limit(
+            dialog.stop_after_processing_checkbox.isChecked(), dialog.stop_after_processing_spinbox.value()
+        )
+    )
+    main_window.job_processor.set_processing_limit(
+        dialog.stop_after_processing_checkbox.isChecked(), dialog.stop_after_processing_spinbox.value()
     )
     main_window.job_processor.queue_ready_signal.connect(dialog.queue_ready)
     main_window.job_processor.job_started_signal.connect(dialog.job_started)
@@ -2305,6 +2363,7 @@ class JobProcessor(QThread):
         self.cancel_requested_event = threading.Event()
         self.stop_requested_event = threading.Event()
         self.stop_after_current_event = threading.Event()
+        self.processing_limit = (False, 100)
         self.skip_requested_event = threading.Event()
 
         # Connect to the video processor's signals.
@@ -2397,6 +2456,9 @@ class JobProcessor(QThread):
             self.stop_after_current_event.set()
         else:
             self.stop_after_current_event.clear()
+
+    def set_processing_limit(self, enabled, limit):
+        self.processing_limit = (enabled, limit)
 
     def _read_job_file(self, job_name: str) -> dict | None:
         """Reads and parses a job's JSON file."""
@@ -2749,6 +2811,7 @@ class JobProcessor(QThread):
         print("[INFO] Master assets loaded event received, load complete.")
 
         # --- 3. Process each job with lightweight loading ---
+        processed_count = 0
         for job_index, job_data in enumerate(self.job_data_list, 1):
             if self.stop_requested_event.is_set():
                 break
@@ -2813,6 +2876,7 @@ class JobProcessor(QThread):
                     shutil.move(job_path, completed_path)
                     print(f"[INFO] Moved job '{job_name}' to completed folder.")
                     self.job_completed_signal.emit(job_name)
+                    processed_count += 1
                 except Exception as e:
                     error_msg = f"Failed to move job {job_name} to completed: {e}"
                     print(f"[ERROR] {error_msg}")
@@ -2842,7 +2906,10 @@ class JobProcessor(QThread):
 
             print(f"[INFO] Job '{job_name}' fully completed. Moving to next.")
             self.msleep(1000)  # Small delay between jobs
-            if self.stop_after_current_event.is_set() and not self.cancel_requested_event.is_set():
+            limit_enabled, limit = self.processing_limit
+            if (
+                self.stop_after_current_event.is_set() or (limit_enabled and processed_count >= limit)
+            ) and not self.cancel_requested_event.is_set():
                 self.batch_stopped = True
                 break
         else:

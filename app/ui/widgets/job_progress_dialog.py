@@ -29,6 +29,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.completed_frames = 0
         self.total_frames = 0
         self.setWindowTitle("Job Processing")
+        self.setObjectName("jobProgressDialog")
         self.setWindowIcon(QtGui.QIcon(":/media/media/visomaster_small.png"))
         self.setWindowFlag(QtCore.Qt.WindowMinimizeButtonHint, True)
         self.setMinimumWidth(540)
@@ -78,13 +79,42 @@ class JobProgressDialog(QtWidgets.QDialog):
             "Save the recorded portion of the current video before skipping to the next job"
         )
         layout.addWidget(self.save_partial_on_skip_checkbox)
+        self.stop_after_processing_row = QtWidgets.QWidget(self)
+        stop_limit_layout = QtWidgets.QHBoxLayout(self.stop_after_processing_row)
+        stop_limit_layout.setContentsMargins(0, 0, 0, 0)
+        self.stop_after_processing_checkbox = QtWidgets.QCheckBox("Stop after processing", self.stop_after_processing_row)
+        self.stop_after_processing_checkbox.setToolTip("Stop the queue once the completed job count reaches the limit")
+        self.stop_after_processing_spinbox = QtWidgets.QSpinBox(self.stop_after_processing_row)
+        self.stop_after_processing_spinbox.setRange(1, 2147483647)
+        self.stop_after_processing_spinbox.setValue(100)
+        self.stop_after_processing_spinbox.setSuffix(" items")
+        stop_limit_layout.addWidget(self.stop_after_processing_checkbox)
+        stop_limit_layout.addWidget(self.stop_after_processing_spinbox)
+        stop_limit_layout.addStretch()
+        layout.addWidget(self.stop_after_processing_row)
+        self.suppress_notifications_checkbox = QtWidgets.QCheckBox("Suppress notifications", self)
+        self.suppress_notifications_checkbox.setObjectName("suppressBatchNotificationsCheckbox")
+        self.suppress_notifications_checkbox.setToolTip("Mute job message alerts, toast notifications, and the result popup")
+        layout.addWidget(self.suppress_notifications_checkbox)
         self.dialog_settings = settings_group("Dialogs/JobProcessing", self)
         self.dialog_settings.remove("stop_after_completion_checkbox")
-        for name in ("save_partial_on_skip_checkbox",):
+        for name in (
+            "save_partial_on_skip_checkbox", "stop_after_processing_checkbox",
+            "suppress_notifications_checkbox",
+        ):
             checkbox = getattr(self, name)
             if self.dialog_settings.contains(name):
                 checkbox.setChecked(self.dialog_settings.value(name, type=bool))
             checkbox.toggled.connect(partial(self.dialog_settings.setValue, name))
+        if self.dialog_settings.contains("stop_after_processing"):
+            self.stop_after_processing_spinbox.setValue(
+                self.dialog_settings.value("stop_after_processing", type=int)
+            )
+        self.stop_after_processing_spinbox.valueChanged.connect(
+            partial(self.dialog_settings.setValue, "stop_after_processing")
+        )
+        self.stop_after_processing_spinbox.setEnabled(self.stop_after_processing_checkbox.isChecked())
+        self.stop_after_processing_checkbox.toggled.connect(self.stop_after_processing_spinbox.setEnabled)
         buttons_separator = QtWidgets.QFrame(self)
         buttons_separator.setFrameShape(QtWidgets.QFrame.HLine)
         buttons_separator.setFrameShadow(QtWidgets.QFrame.Sunken)
@@ -210,6 +240,7 @@ class JobProgressDialog(QtWidgets.QDialog):
 
     def stopping(self):
         self.stop_after_completion_checkbox.setEnabled(False)
+        self.stop_after_processing_row.setEnabled(False)
         self.skip_button.setEnabled(False)
         self.stop_button.setEnabled(False)
         self.cancel_button.setEnabled(False)
@@ -250,12 +281,15 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.minimize()
 
     def finish(self):
+        self.setObjectName("")
         self.dialog_settings.setValue("geometry", self.saveGeometry())
         self.runtime_timer.stop()
         self.update_runtime()
         self.hide()
 
     def show_result(self, processor, command):
+        if self.suppress_notifications_checkbox.isChecked():
+            return
         unfinished = self.started_job_names - self.completed_job_names - self.skipped_job_names
         ended_early = processor.batch_cancelled or processor.batch_stopped
         failed = unfinished.intersection(self.job_errors) if ended_early else unfinished

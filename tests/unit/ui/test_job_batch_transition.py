@@ -38,7 +38,7 @@ def test_job_transition_and_final_report(tmp_path):
             window.job_marker_pairs = []
             window.job_progress_dialog = None
             window.job_processing_button = None
-            for name in ("buttonProcessAll", "buttonProcessSelected", "buttonStopProcessing", "loadJobButton", "deleteJobButton", "smartJobListButton"):
+            for name in ("buttonProcessAll", "buttonProcessSelected", "buttonProcessSelectedSimilar", "buttonProcessAllSimilar", "buttonStopProcessing", "loadJobButton", "deleteJobButton", "smartJobListButton"):
                 setattr(window, name, QtWidgets.QPushButton(name, window))
             items = {}
             for name in ("A", "B", "C"):
@@ -185,7 +185,7 @@ def test_interruption_waits_for_ui_handoffs_before_restoring(tmp_path):
                 window.job_marker_pairs = []
                 window.job_progress_dialog = None
                 window.job_processing_button = None
-                for name in ("buttonProcessAll", "buttonProcessSelected", "buttonStopProcessing",
+                for name in ("buttonProcessAll", "buttonProcessSelected", "buttonProcessSelectedSimilar", "buttonProcessAllSimilar", "buttonStopProcessing",
                              "loadJobButton", "deleteJobButton", "smartJobListButton", "buttonMediaRecord"):
                     setattr(window, name, QtWidgets.QPushButton(name, window))
                 window.buttonMediaRecord.setCheckable(True)
@@ -415,7 +415,7 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
                 self.stop_processing()
 
         for mode in ("stop", "cancel", "skip_discard", "skip_save", "stop_after",
-                     "skip_stop_after", "empty", "stop_empty", "stop_preroll", "stop_preroll_slow", "cancel_preroll", "timeout"):
+                     "skip_stop_after", "limit", "skip_limit", "limit_disabled", "empty", "stop_empty", "stop_preroll", "stop_preroll_slow", "cancel_preroll", "timeout"):
             window = QtWidgets.QMainWindow()
             window.project_root_path = root / mode
             jobs = window.project_root_path / "jobs"
@@ -434,7 +434,7 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
                               "ConfirmBeforeStoppingRecordingToggle": True}
             window.videoSeekSlider = QtWidgets.QSlider(window)
             window.buttonMediaPlay = QtWidgets.QPushButton(window)
-            for name in ("buttonProcessAll", "buttonProcessSelected", "buttonStopProcessing",
+            for name in ("buttonProcessAll", "buttonProcessSelected", "buttonProcessSelectedSimilar", "buttonProcessAllSimilar", "buttonStopProcessing",
                          "loadJobButton", "deleteJobButton", "smartJobListButton", "buttonMediaRecord"):
                 setattr(window, name, QtWidgets.QPushButton(name, window))
             window.buttonMediaRecord.setCheckable(True)
@@ -468,13 +468,22 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
                 elif mode in ("cancel", "cancel_preroll"):
                     dialog.cancel_button.click()
                 elif mode.startswith("skip"):
+                    if mode == "skip_limit":
+                        dialog.stop_after_processing_spinbox.setValue(1)
+                        dialog.stop_after_processing_checkbox.setChecked(True)
                     dialog.stop_after_completion_checkbox.setChecked(mode == "skip_stop_after")
                     dialog.save_partial_on_skip_checkbox.setChecked(mode == "skip_save")
                     dialog.skip_button.click()
                 elif mode == "empty":
                     video.stop_processing()
                 else:
-                    dialog.stop_after_completion_checkbox.setChecked(True)
+                    if mode in ("limit", "limit_disabled"):
+                        dialog.stop_after_processing_checkbox.setChecked(True)
+                        dialog.stop_after_processing_spinbox.setValue(1)
+                        if mode == "limit_disabled":
+                            dialog.stop_after_processing_checkbox.setChecked(False)
+                    else:
+                        dialog.stop_after_completion_checkbox.setChecked(True)
                     if segmented:
                         video.finalize_segment_concatenation()
                     else:
@@ -489,7 +498,7 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
                     QtCore.QTimer.singleShot(30, action if window.job_processor.current_job_name == "A" else finish)
 
             def isolated_settings(namespace, parent):
-                return QtCore.QSettings(str(root / "settings.ini"), QtCore.QSettings.IniFormat, parent)
+                return QtCore.QSettings(str(root / f"{mode}-settings.ini"), QtCore.QSettings.IniFormat, parent)
 
             window.buttonMediaRecord.toggled.connect(
                 lambda checked: actions.video_control_actions.record_video(window, checked)
@@ -524,19 +533,20 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
                 assert events[-2:] == ["restore", "report"]
                 assert events.count("restore") == 1
                 completed = {path.stem for path in (jobs / "completed").glob("*.json")}
-                assert completed == ({"B"} if mode in ("skip_discard", "skip_save")
-                                     else {"A"} if mode == "stop_after" else set()), (mode, completed)
-                assert ("load B" in events) == (mode in ("skip_discard", "skip_save"))
+                assert completed == ({"B"} if mode in ("skip_discard", "skip_save", "skip_limit")
+                                     else {"A", "B"} if mode == "limit_disabled"
+                                     else {"A"} if mode in ("stop_after", "limit") else set()), (mode, completed)
+                assert ("load B" in events) == (mode in ("skip_discard", "skip_save", "skip_limit", "limit_disabled"))
                 assert bool(worker.skipped_jobs) == mode.startswith("skip")
                 assert worker.batch_cancelled == (mode in ("cancel", "cancel_preroll"))
-                assert worker.batch_stopped == (mode in ("stop", "stop_empty", "stop_after", "skip_stop_after", "stop_preroll", "stop_preroll_slow"))
+                assert worker.batch_stopped == (mode in ("stop", "stop_empty", "stop_after", "skip_stop_after", "limit", "skip_limit", "stop_preroll", "stop_preroll_slow"))
                 assert bool(errors) == (mode in ("empty", "timeout")), (mode, errors)
                 if mode == "empty":
                     assert errors == [("A", empty_error)]
                 if mode == "timeout":
                     assert errors == [("A", "Timeout waiting for processing to start signal.")]
-                expected_saves = 2 if mode == "skip_save" else 1 if mode in (
-                    "stop", "stop_empty", "skip_discard", "stop_after", "stop_preroll", "stop_preroll_slow"
+                expected_saves = 2 if mode in ("skip_save", "limit_disabled") else 1 if mode in (
+                    "stop", "stop_empty", "skip_discard", "stop_after", "limit", "skip_limit", "stop_preroll", "stop_preroll_slow"
                 ) else 0
                 assert events.count("save") == expected_saves, (mode, events)
                 prompts.assert_not_called()

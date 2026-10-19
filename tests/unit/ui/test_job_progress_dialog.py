@@ -20,6 +20,12 @@ def test_job_progress_checkbox_preferences(tmp_path):
             return settings
         job_progress_dialog.settings_group = isolated_settings
         settings = isolated_settings("Dialogs/JobProcessing", app)
+        initial = job_progress_dialog.JobProgressDialog(None, {})
+        assert not initial.suppress_notifications_checkbox.isChecked()
+        assert not initial.stop_after_processing_checkbox.isChecked()
+        assert initial.stop_after_processing_spinbox.value() == 100
+        assert not initial.stop_after_processing_spinbox.isEnabled()
+        initial.finish()
         for checked in (True, False):
             settings.setValue("stop_after_completion_checkbox", True)
             dialog = job_progress_dialog.JobProgressDialog(None, {})
@@ -29,10 +35,24 @@ def test_job_progress_checkbox_preferences(tmp_path):
             assert not settings.contains("stop_after_completion_checkbox")
             dialog.save_partial_on_skip_checkbox.setChecked(not checked)
             dialog.save_partial_on_skip_checkbox.setChecked(checked)
+            dialog.suppress_notifications_checkbox.setChecked(checked)
+            dialog.stop_after_processing_checkbox.setChecked(checked)
+            dialog.stop_after_processing_spinbox.setValue(25)
+            assert dialog.stop_after_processing_spinbox.isEnabled() == checked
+            dialog.show()
+            app.processEvents()
+            assert dialog.save_partial_on_skip_checkbox.geometry().bottom() < dialog.stop_after_processing_row.y()
+            assert dialog.stop_after_processing_row.geometry().bottom() < dialog.suppress_notifications_checkbox.y()
             dialog.finish()
             reopened = job_progress_dialog.JobProgressDialog(None, {})
             assert not reopened.stop_after_completion_checkbox.isChecked()
             assert reopened.save_partial_on_skip_checkbox.isChecked() == checked
+            assert reopened.suppress_notifications_checkbox.isChecked() == checked
+            assert reopened.stop_after_processing_checkbox.isChecked() == checked
+            assert reopened.stop_after_processing_spinbox.value() == 25
+            assert reopened.stop_after_processing_spinbox.isEnabled() == checked
+            reopened.stopping()
+            assert not reopened.stop_after_processing_row.isEnabled()
             assert settings.value("save_partial_on_skip_checkbox", type=bool) == checked
             reopened.finish()
             dialog.deleteLater()
@@ -93,10 +113,10 @@ def test_job_progress_lifecycle(tmp_path):
                 QtTest.QTest.qWait(10)
             assert predicate()
 
-        for selected in (False, True):
+        for selected, similar in ((False, False), (True, False), (False, True), (True, True)):
             for outcome in ("success", "stop", "cancel", "load_failure"):
                 window = QtWidgets.QMainWindow()
-                window.project_root_path = root / f"{selected}-{outcome}"
+                window.project_root_path = root / f"{selected}-{similar}-{outcome}"
                 jobs = window.project_root_path / "jobs"
                 jobs.mkdir(parents=True)
                 window.video_processor = Video(window)
@@ -112,6 +132,8 @@ def test_job_progress_lifecycle(tmp_path):
                 for attr, label in (
                     ("buttonProcessAll", "Process All"),
                     ("buttonProcessSelected", "Process Selected"),
+                    ("buttonProcessSelectedSimilar", "Process Similar (0)"),
+                    ("buttonProcessAllSimilar", "Process Similar"),
                     ("buttonStopProcessing", "Stop Processing"),
                     ("addJobButton", "Save Job"), ("loadJobButton", "Load Job"),
                     ("deleteJobButton", "Delete Job"), ("refreshJobListButton", "Refresh"),
@@ -183,7 +205,11 @@ def test_job_progress_lifecycle(tmp_path):
                      patch.object(actions.QMessageBox, "critical", side_effect=lambda *args: reports.append(args[1])):
                     active = window.buttonProcessSelected if selected else window.buttonProcessAll
                     other = window.buttonProcessAll if selected else window.buttonProcessSelected
-                    active.click()
+                    if similar:
+                        active = window.buttonProcessSelectedSimilar if selected else window.buttonProcessAllSimilar
+                        actions.start_job_processor(window, ["B"] if selected else ["A", "B"], processing_button=active)
+                    else:
+                        active.click()
                     worker = window.job_processor
                     dialog = window.job_progress_dialog
                     assert worker.jobs == (["B"] if selected else ["A", "B"])
@@ -237,7 +263,7 @@ def test_job_progress_lifecycle(tmp_path):
                         assert expected_title in reports
                     assert worker.isFinished()
                     assert len(summaries) == 1
-                    assert summaries[0].startswith("Process Selected" if selected else "Process All")
+                    assert summaries[0].startswith("Process Similar" if similar else "Process Selected" if selected else "Process All")
                     total = 1 if selected else 2
                     assert f"Queued: {total}" in summaries[0]
                     assert f"Completed: {total if outcome == 'success' else 0}" in summaries[0]
@@ -250,9 +276,11 @@ def test_job_progress_lifecycle(tmp_path):
                     assert restored == [True]
                     assert not active.isChecked() and not active.isCheckable()
                     assert window.buttonProcessAll.text() == "Process All"
-                    assert window.buttonProcessSelected.text() == "Process Selected"
+                    assert window.buttonProcessSelected.text() == f"Process ({len(window.jobQueueList.selectedItems())})"
                     assert not window.buttonStopProcessing.isEnabled()
                     assert window.smartJobListButton.isEnabled()
+                    assert window.buttonProcessSelectedSimilar.text() == f"Process Similar ({len(window.jobQueueList.selectedItems())})"
+                    assert window.buttonProcessAllSimilar.text() == "Process Similar"
                     assert window.job_processing_button is None
                     assert window.batch_progress_dialog is batch_dialog
                     assert window.is_batch_processing is False
@@ -395,5 +423,55 @@ def test_job_progress_eta(tmp_path):
         capture_output=True,
         text=True,
         timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_job_notification_suppression(tmp_path):
+    script = textwrap.dedent('''
+        import ast
+        import sys
+        from functools import wraps
+        from pathlib import Path
+        from unittest.mock import patch
+        from PySide6 import QtCore, QtWidgets
+        from app.ui.widgets import job_progress_dialog
+
+        app = QtWidgets.QApplication([])
+        def isolated_settings(namespace, parent):
+            return QtCore.QSettings(sys.argv[1], QtCore.QSettings.IniFormat, parent)
+        job_progress_dialog.settings_group = isolated_settings
+        source = Path("app/ui/widgets/actions/common_actions.py")
+        function = next(node for node in ast.parse(source.read_text(encoding="utf-8")).body
+                        if isinstance(node, ast.FunctionDef) and node.name == "suppress_batch_notifications")
+        namespace = dict(QtWidgets=QtWidgets, wraps=wraps)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), "exec"), namespace)
+        displayed = []
+        display = namespace["suppress_batch_notifications"](lambda *args: displayed.append(True))
+        parent = QtWidgets.QWidget()
+        parent.is_batch_processing = False
+        dialog = job_progress_dialog.JobProgressDialog(parent, {})
+        display(parent)
+        assert displayed == [True]
+        dialog.suppress_notifications_checkbox.setChecked(True)
+        dialog.minimize()
+        display(parent)
+        assert displayed == [True]
+        with patch.object(QtWidgets.QDialog, "exec") as report:
+            dialog.show_result(None, "Process All")
+            report.assert_not_called()
+        dialog.suppress_notifications_checkbox.setChecked(False)
+        display(parent)
+        assert displayed == [True, True]
+        dialog.suppress_notifications_checkbox.setChecked(True)
+        dialog.finish()
+        display(parent)
+        assert displayed == [True, True, True]
+    ''')
+    result = subprocess.run(
+        [sys.executable, "-u", "-c", script, str(tmp_path / "notifications.ini")],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+        capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
