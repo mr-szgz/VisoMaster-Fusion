@@ -26,11 +26,12 @@ class JobQueueListWidget(QtWidgets.QListWidget):
 
 
 class JobQueueListWidgetItem(QtWidgets.QListWidgetItem):
-    def __init__(self, file_info: QtCore.QFileInfo):
+    def __init__(self, file_info: QtCore.QFileInfo, job_data: dict | None = None):
         super().__init__()
         self.setData(JobDataRole.FileInfoRole, file_info)
-        with open(file_info.filePath(), "r", encoding="utf-8") as job_file:
-            job_data = json.load(job_file)
+        if job_data is None:
+            with open(file_info.filePath(), "r", encoding="utf-8") as job_file:
+                job_data = json.load(job_file)
         self.setData(JobDataRole.UseJobNameForOutputRole, job_data["use_job_name_for_output"])
         self.setData(JobDataRole.OutputFileNameRole, job_data["output_file_name"])
         self.setData(

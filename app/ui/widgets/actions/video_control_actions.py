@@ -2672,21 +2672,58 @@ def save_current_frame_to_file(main_window: "MainWindow"):
 
 def batch_save_jobs(main_window: "MainWindow"):
     """Save the current face configuration as a job for each target image/video."""
-    from app.ui.widgets.actions import job_manager_actions
+    from app.ui.widgets.batch_save_jobs_dialog import BatchSaveJobsDialog
 
-    saved_count = 0
-    saved_job_name = None
+    if main_window.batch_save_jobs_dialog is not None:
+        main_window.batch_save_jobs_dialog.showNormal()
+        main_window.batch_save_jobs_dialog.raise_()
+        main_window.batch_save_jobs_dialog.activateWindow()
+        return
+
+    media_items = []
     for i in range(main_window.targetVideosList.count()):
         item = main_window.targetVideosList.item(i)
         target_media = main_window.targetVideosList.itemWidget(item)
         if target_media.file_type in ("image", "video"):
-            saved_job_name = job_manager_actions.save_default_job(main_window, target_media)
-            saved_count += 1
+            media_items.append(target_media)
 
-    job_manager_actions.refresh_job_list(main_window, selected_job_name=saved_job_name)
-    common_widget_actions.create_and_show_toast_message(
-        main_window, "Jobs Saved", f"Saved {saved_count} jobs."
+    num_images = sum(media.file_type == "image" for media in media_items)
+    num_videos = sum(media.file_type == "video" for media in media_items)
+    reply = QtWidgets.QMessageBox.question(
+        main_window,
+        "Confirm Batch Save Jobs",
+        f"Found {num_images} images and {num_videos} videos in the target list.\n\n"
+        "This will save a job for each item using the current face configuration.\n\n"
+        "Proceed with batch save jobs?",
+        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+        QtWidgets.QMessageBox.No,
     )
+    if reply == QtWidgets.QMessageBox.No:
+        return
+
+    dialog = BatchSaveJobsDialog(main_window, media_items)
+    main_window.batch_save_jobs_dialog = dialog
+    batch_button = main_window.batchSaveJobsButton
+    original_button_text = batch_button.text()
+    batch_button.setText(f"Saving Jobs (0/{len(media_items)})")
+    dialog.progress_bar.valueChanged.connect(
+        lambda value: batch_button.setText(f"Saving Jobs ({value}/{len(media_items)})")
+    )
+    batch_button.setCheckable(True)
+    batch_button.setChecked(False)
+    dialog.minimizedChanged.connect(batch_button.setChecked)
+    original_batch_enabled = main_window.batchImageButton.isEnabled()
+    original_batchall_enabled = main_window.batchallImageButton.isEnabled()
+    main_window.batchImageButton.setEnabled(False)
+    main_window.batchallImageButton.setEnabled(False)
+    dialog.run()
+    main_window.batch_save_jobs_dialog = None
+    batch_button.setText(original_button_text)
+    batch_button.setChecked(False)
+    batch_button.setCheckable(False)
+    main_window.batchImageButton.setEnabled(original_batch_enabled)
+    main_window.batchallImageButton.setEnabled(original_batchall_enabled)
+    dialog.deleteLater()
 
 
 def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
@@ -2706,7 +2743,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     from app.ui.widgets.actions import job_manager_actions
 
     if main_window.is_batch_processing:
-        main_window.batch_progress_dialog.show()
+        main_window.batch_progress_dialog.showNormal()
         main_window.batch_progress_dialog.raise_()
         main_window.batch_progress_dialog.activateWindow()
         return
@@ -2759,12 +2796,6 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
             main_window,
         )
         return
-
-    # We need a copy of the current UI parameters (for 'all faces' mode)
-    saved_current_parameters = None
-    if process_all_faces:
-        if main_window.current_widget_parameters is not None:
-            saved_current_parameters = main_window.current_widget_parameters.copy()
 
     # Get the currently selected source faces and embeddings (for both modes)
     saved_input_faces = [
@@ -2841,16 +2872,26 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
         main_window,
         total_items=len(media_files_to_process),
     )
-    progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
+    progress_dialog.setWindowModality(QtCore.Qt.NonModal)
     progress_dialog.setWindowTitle("Batch Processing Media")
     def interrupt_skipped_media():
         processor = main_window.video_processor
-        if progress_dialog.save_partial_on_skip_checkbox.isChecked() and processor.recording:
+        if (
+            progress_dialog.save_partial_on_skip_checkbox.isChecked()
+            and processor.recording
+            and (
+                not progress_dialog.minimum_partial_frames_checkbox.isChecked()
+                or processor.frames_written >= progress_dialog.minimum_partial_frames_spinbox.value()
+            )
+        ):
             processor._finalize_default_style_recording()
         elif processor.processing or processor.is_processing_segments:
             processor.stop_processing()
 
     progress_dialog.skipConfirmed.connect(interrupt_skipped_media)
+    main_window.video_processor.processing_started_signal.connect(progress_dialog.processing_started)
+    main_window.video_processor.frame_processed_signal.connect(progress_dialog.frame_processed)
+    main_window.video_processor.processing_stopped_signal.connect(progress_dialog.processing_stopped)
     progress_dialog.findChild(QtWidgets.QProgressBar).valueChanged.connect(
         lambda value: batch_button.setText(
             f"Processing Media "
@@ -2891,8 +2932,10 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
             if progress_dialog.skip_requested:
                 if progress_dialog.save_skipped_checkbox.isChecked():
+                    for face_id in (main_window.target_faces if process_all_faces else [main_window.selected_target_face_id]):
+                        main_window.parameters[face_id] = main_window.current_widget_parameters.copy()
                     job_manager_actions.save_default_job(main_window, media_widget)
-                    job_manager_actions.refresh_job_list(main_window)
+                    job_manager_actions.refresh_new_jobs(main_window)
                 if progress_dialog.clear_skipped_checkbox.isChecked():
                     if main_window.selected_video_button is media_widget:
                         main_window.selected_video_button = None
@@ -2995,6 +3038,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
                 if file_type == "image":
                     # --- IMAGE PROCESSING ---
+                    progress_dialog.processing_started()
                     if process_all_faces:
                         # --- "ALL FACES" LOGIC ---
                         card_actions.clear_target_faces(
@@ -3002,10 +3046,9 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                         )
                         card_actions.find_target_faces(main_window)
                         for target_face in main_window.target_faces.values():
-                            if saved_current_parameters:
-                                main_window.parameters[target_face.face_id] = (
-                                    saved_current_parameters.copy()
-                                )
+                            main_window.parameters[target_face.face_id] = (
+                                main_window.current_widget_parameters.copy()
+                            )
                             for input_face in saved_input_faces:
                                 target_face.assigned_input_faces[input_face.face_id] = (
                                     input_face.embedding_store
@@ -3026,6 +3069,10 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                             synchronous=True
                         )
 
+                    progress_dialog.frame_processed()
+                    progress_dialog.set_item_progress(1, 1)
+                    progress_dialog.update_runtime()
+                    progress_dialog.processing_stopped()
                     QtWidgets.QApplication.processEvents()
                     if progress_dialog.confirmedCanceled():
                         break
@@ -3099,9 +3146,8 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                         or main_window.video_processor.is_processing_segments
                     ):
                         # Each media item has equal weight; recorded frames fill its share.
-                        progress_dialog.setValue(
-                            (processed_count + failed_count + skipped_count) * 1000
-                            + int(main_window.video_processor.frames_written / total_recording_frames * 1000)
+                        progress_dialog.set_item_progress(
+                            main_window.video_processor.frames_written, total_recording_frames
                         )
                         QtWidgets.QApplication.processEvents()  # Process UI events (like cancel button)
 
@@ -3132,6 +3178,9 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                         continue
 
                     # 4. At this point, record_video has completed (or been aborted)
+                    progress_dialog.set_item_progress(
+                        main_window.video_processor.frames_written, total_recording_frames
+                    )
                     # We must check *again* if the loop was exited due to cancellation
                     # to avoid incorrectly incrementing the 'processed_count'.
                     if not progress_dialog.confirmedCanceled():
@@ -3189,10 +3238,13 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     main_window.video_processor.stop_processing()
 
             finally:
+                progress_dialog.processing_stopped()
                 if progress_dialog.skip_requested:
                     if progress_dialog.save_skipped_checkbox.isChecked():
+                        for face_id in (main_window.target_faces if process_all_faces else [main_window.selected_target_face_id]):
+                            main_window.parameters[face_id] = main_window.current_widget_parameters.copy()
                         job_manager_actions.save_default_job(main_window, media_widget)
-                        job_manager_actions.refresh_job_list(main_window)
+                        job_manager_actions.refresh_new_jobs(main_window)
                     if progress_dialog.clear_skipped_checkbox.isChecked():
                         if main_window.selected_video_button is media_widget:
                             main_window.selected_video_button = None
@@ -3220,6 +3272,9 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                 break
 
     finally:
+        main_window.video_processor.processing_started_signal.disconnect(progress_dialog.processing_started)
+        main_window.video_processor.frame_processed_signal.disconnect(progress_dialog.frame_processed)
+        main_window.video_processor.processing_stopped_signal.disconnect(progress_dialog.processing_stopped)
         main_window.is_batch_processing = False
         main_window.batch_progress_dialog = None
         main_window.batch_processing_button = None

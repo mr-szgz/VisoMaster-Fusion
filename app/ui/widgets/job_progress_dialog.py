@@ -73,7 +73,8 @@ class JobProgressDialog(QtWidgets.QDialog):
         )
         layout.addWidget(self.save_partial_on_skip_checkbox)
         self.dialog_settings = settings_group("Dialogs/JobProcessing", self)
-        for name in ("stop_after_completion_checkbox", "save_partial_on_skip_checkbox"):
+        self.dialog_settings.remove("stop_after_completion_checkbox")
+        for name in ("save_partial_on_skip_checkbox",):
             checkbox = getattr(self, name)
             if self.dialog_settings.contains(name):
                 checkbox.setChecked(self.dialog_settings.value(name, type=bool))

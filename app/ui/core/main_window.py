@@ -33,7 +33,7 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(1768, 825)
+        MainWindow.resize(1768, 837)
         font = QFont()
         font.setPointSize(10)
         MainWindow.setFont(font)
@@ -836,10 +836,20 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_JobManager.addLayout(self.jobControlLayout)
 
+        self.jobHorizontalLayout_4 = QHBoxLayout()
+        self.jobHorizontalLayout_4.setObjectName(u"jobHorizontalLayout_4")
         self.refreshJobListButton = QPushButton(self.dockWidgetContents_JobManager)
         self.refreshJobListButton.setObjectName(u"refreshJobListButton")
 
-        self.verticalLayout_JobManager.addWidget(self.refreshJobListButton)
+        self.jobHorizontalLayout_4.addWidget(self.refreshJobListButton)
+
+        self.checkNewJobListButton = QPushButton(self.dockWidgetContents_JobManager)
+        self.checkNewJobListButton.setObjectName(u"checkNewJobListButton")
+
+        self.jobHorizontalLayout_4.addWidget(self.checkNewJobListButton)
+
+
+        self.verticalLayout_JobManager.addLayout(self.jobHorizontalLayout_4)
 
         self.formLayout = QFormLayout()
         self.formLayout.setObjectName(u"formLayout")
@@ -1254,6 +1264,7 @@ class Ui_MainWindow(object):
         self.loadJobButton.setText(QCoreApplication.translate("MainWindow", u"Load Job", None))
         self.deleteJobButton.setText(QCoreApplication.translate("MainWindow", u"Delete Job", None))
         self.refreshJobListButton.setText(QCoreApplication.translate("MainWindow", u"Refresh Job List", None))
+        self.checkNewJobListButton.setText(QCoreApplication.translate("MainWindow", u"Check for New", None))
         self.jobDisplayLabel.setText(QCoreApplication.translate("MainWindow", u"Format", None))
         self.jobListLabelTemplateComboBox.setItemText(0, QCoreApplication.translate("MainWindow", u"{duration_text} {job_name}", None))
         self.jobListLabelTemplateComboBox.setItemText(1, QCoreApplication.translate("MainWindow", u"{duration_text} {embedding_names}", None))

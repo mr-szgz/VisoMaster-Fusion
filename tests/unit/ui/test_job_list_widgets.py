@@ -60,6 +60,7 @@ def test_job_list_widgets_with_real_qt(tmp_path):
         assert item.data(widgets.JobDataRole.EmbeddingNamesRole) == ["Bob", "Alice"]
         assert all(int(role) >= int(QtCore.Qt.ItemDataRole.UserRole) for role in widgets.JobDataRole)
 
+
         for clustering in (False, True):
             legacy = copy.deepcopy(job)
             del legacy["restore_selected_face"]
@@ -360,3 +361,126 @@ def test_real_main_window_job_save_and_edit(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS actual MainWindow" in result.stdout
     assert "Traceback" not in result.stderr, result.stderr
+
+
+def test_refresh_new_jobs_with_real_qt(tmp_path):
+    script = textwrap.dedent('''
+        import copy
+        import json
+        from pathlib import Path
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        from PySide6 import QtCore, QtWidgets
+        from app.ui.widgets import job_list_widgets as widgets
+
+        app = QtWidgets.QApplication([])
+        root = Path(sys.argv[1])
+        path = root / "Saved.job.json"
+        job = {
+            "selected_media_id": "target",
+            "target_medias_data": [
+                {"media_id": "other", "media_path": "other.mp4"},
+                {"media_id": "target", "media_path": "photo.png"},
+            ],
+            "target_faces_data": {
+                "one": {"assigned_merged_embeddings": ["b", "a"]},
+                "two": {"assigned_merged_embeddings": ["a", "b"]},
+            },
+            "embeddings_data": {
+                "a": {"embedding_name": "Alice"},
+                "b": {"embedding_name": "Bob"},
+                "unused": {"embedding_name": "Unused"},
+            },
+            "restore_selected_face": False,
+            "use_job_name_for_output": False,
+            "output_file_name": "saved-output",
+            "control": {"ClusterOutputBySourceToggle": True, "OutputMediaFolder": "saved-folder"},
+        }
+        path.write_text(json.dumps(job), encoding="utf-8")
+        queue = widgets.JobQueueListWidget()
+        queue.setSortingEnabled(True)
+        item = widgets.JobQueueListWidgetItem(QtCore.QFileInfo(str(path)))
+        item.setData(widgets.JobDataRole.JobNameRole, "Saved.job")
+        item.setData(QtCore.Qt.ItemDataRole.DisplayRole, "Saved.job")
+        item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, item.to_tooltip())
+        queue.addItem(item)
+        # Incremental refresh keeps existing objects and reads/probes only new jobs.
+        import ast
+        from types import SimpleNamespace
+
+        source = Path("app/ui/widgets/actions/job_manager_actions.py").read_text(encoding="utf-8")
+        function = next(node for node in ast.parse(source).body
+                        if isinstance(node, ast.FunctionDef) and node.name == "refresh_new_jobs")
+        factory = MagicMock(side_effect=widgets.JobQueueListWidgetItem)
+        update_buttons = MagicMock()
+        namespace = {
+            "JobDataRole": widgets.JobDataRole,
+            "JobQueueListWidgetItem": factory,
+            "QFileInfo": QtCore.QFileInfo,
+            "Qt": QtCore.Qt,
+            "QtWidgets": QtWidgets,
+            "QEventLoop": QtCore.QEventLoop,
+            "get_jobs_dir": lambda mw: root,
+            "list_jobs": lambda mw: [p.stem for p in root.glob("*.json")],
+            "update_job_manager_buttons": update_buttons,
+        }
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "<refresh_new_jobs>", "exec"), namespace)
+        combo = QtWidgets.QComboBox()
+        combo.addItem("{job_name}")
+        mw = SimpleNamespace(jobQueueList=queue, jobListLabelTemplateComboBox=combo)
+        queue.setCurrentItem(item)
+        # An unreadable existing file must never be reopened by incremental refresh.
+        path.write_text("invalid json", encoding="utf-8")
+        for name in ("Zulu", "Alpha"):
+            (root / f"{name}.json").write_text(json.dumps(job), encoding="utf-8")
+        with patch.object(widgets.cv2, "VideoCapture") as capture:
+            namespace["refresh_new_jobs"](mw)
+            capture.assert_not_called()
+        assert factory.call_count == 2
+        assert queue.item(1) is item
+        assert queue.currentItem() is item
+        assert [queue.item(i).text() for i in range(queue.count())] == ["Alpha", "Saved.job", "Zulu"]
+        namespace["refresh_new_jobs"](mw, selected_job_name="Alpha")
+        assert factory.call_count == 2
+        assert queue.currentItem().text() == "Alpha"
+        assert update_buttons.call_count == 2
+        assert queue.isSortingEnabled()
+        # Batch insertion uses the known filenames and services paint/timer events.
+        new_names = [f"Batch_{i:04d}" for i in range(250)]
+        for name in new_names:
+            (root / f"{name}.json").write_text("must not be read", encoding="utf-8")
+        directory_scan = MagicMock()
+        namespace["list_jobs"] = directory_scan
+        ticks = []
+        timer = QtCore.QTimer()
+        timer.timeout.connect(lambda: ticks.append(queue.count()))
+        timer.start(0)
+        saved_jobs = {name: job for name in new_names}
+        namespace["refresh_new_jobs"](mw, selected_job_name=new_names[-1], saved_jobs=saved_jobs)
+        timer.stop()
+        directory_scan.assert_not_called()
+        assert len(ticks) >= 250
+        assert ticks[0] < queue.count()
+        assert factory.call_count == 252
+        assert queue.count() == 253
+        assert queue.isSortingEnabled()
+        assert queue.currentItem().text() == new_names[-1]
+        assert [queue.item(i).text() for i in range(queue.count())] == sorted(
+            ["Alpha", "Saved.job", "Zulu", *new_names]
+        )
+        queue.setSortingEnabled(False)
+        namespace["refresh_new_jobs"](mw, saved_jobs=saved_jobs)
+        assert not queue.isSortingEnabled()
+        assert factory.call_count == 252
+        path.write_text(json.dumps(job), encoding="utf-8")
+    ''')
+    result = subprocess.run(
+        [sys.executable, "-u", "-c", script, str(tmp_path)],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

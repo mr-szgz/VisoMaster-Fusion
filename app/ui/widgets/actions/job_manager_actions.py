@@ -523,9 +523,17 @@ def _load_job_controls_and_state(
     )
     main_window.loaded_embedding_filename = data.get("loaded_embedding_filename", "")
 
-    # Update all control widgets in the "Settings" tab FIRST
-    # (This triggers clear_gpu_memory)
-    common_widget_actions.set_control_widgets_values(main_window)
+    # Keep compatible model sessions when loading another job in the batch.
+    if (
+        is_batch_load
+        and main_window.control["ProvidersPrioritySelection"]
+        == main_window.models_processor.provider_name
+    ):
+        common_widget_actions.set_control_widgets_values(
+            main_window, skip_exec_controls=("ProvidersPrioritySelection",)
+        )
+    else:
+        common_widget_actions.set_control_widgets_values(main_window)
 
     # Ensure output folder is set correctly
     output_folder = data.get("control", {}).get("OutputMediaFolder", "")
@@ -548,8 +556,12 @@ def _load_job_controls_and_state(
     # Keep LivePortrait model lifecycle in sync when restoring button state.
     control_actions.handle_face_editor_button_click(main_window)
 
-    # On a batch load, this is harmful and breaks the logic.
-    if swap_faces_state and not is_batch_load:
+    # Workspace restoration defers processing until its final frame refresh.
+    if (
+        swap_faces_state
+        and not is_batch_load
+        and not getattr(main_window, "_batch_update_in_progress", False)
+    ):
         # This will trigger a frame refresh via its own logic
         video_control_actions.process_swap_faces(main_window)
     print(f"[INFO] Swap Faces button state restored: {swap_faces_state}")
@@ -1458,6 +1470,9 @@ def setup_job_manager_ui(main_window: "MainWindow"):
     main_window.refreshJobListButton = main_window.findChild(
         QtWidgets.QPushButton, "refreshJobListButton"
     )
+    main_window.checkNewJobListButton = main_window.findChild(
+        QtWidgets.QPushButton, "checkNewJobListButton"
+    )
 
     # Enable multi-selection for the job list
     if main_window.jobQueueList:
@@ -1592,7 +1607,7 @@ def prompt_job_name(main_window: "MainWindow"):
 
         # Save the job and refresh the list
         save_job(main_window, dialog)
-        refresh_job_list(main_window, selected_job_name=job_name)
+        refresh_new_jobs(main_window, selected_job_name=job_name)
 
 
 def show_job_context_menu(main_window: "MainWindow", position):
@@ -1687,6 +1702,9 @@ def connect_job_manager_signals(main_window: "MainWindow"):
         main_window.refreshJobListButton.clicked.connect(
             lambda: refresh_job_list(main_window)
         )
+    main_window.checkNewJobListButton.clicked.connect(
+        lambda: refresh_new_jobs(main_window)
+    )
     if main_window.jobQueueList:
         main_window.jobQueueList.setContextMenuPolicy(Qt.CustomContextMenu)
         main_window.jobQueueList.customContextMenuRequested.connect(
@@ -1729,6 +1747,56 @@ def refresh_job_list(main_window: "MainWindow", selected_job_name: str | None = 
             )[0]
             job_list.setCurrentIndex(index)
             job_list.scrollTo(index, QtWidgets.QAbstractItemView.ScrollHint.EnsureVisible)
+
+
+def refresh_new_jobs(
+    main_window: "MainWindow", selected_job_name: str | None = None,
+    saved_jobs: dict[str, dict] | None = None,
+):
+    """Insert only unlisted jobs, preserving existing items and widget sorting."""
+    job_list = main_window.jobQueueList
+    existing_names = {
+        job_list.item(index).data(JobDataRole.JobNameRole)
+        for index in range(job_list.count())
+    }
+    jobs_dir = get_jobs_dir(main_window)
+    job_names = list_jobs(main_window) if saved_jobs is None else saved_jobs
+    for job_name in job_names:
+        if job_name in existing_names:
+            continue
+        item = JobQueueListWidgetItem(
+            QFileInfo(str(jobs_dir / f"{job_name}.json")),
+            job_data=None if saved_jobs is None else saved_jobs[job_name],
+        )
+        item.setData(JobDataRole.JobNameRole, job_name)
+        item.setData(
+            Qt.ItemDataRole.DisplayRole,
+            item.to_label(main_window.jobListLabelTemplateComboBox.currentText()),
+        )
+        item.setData(Qt.ItemDataRole.ToolTipRole, item.to_tooltip())
+        job_list.addItem(item)
+        QtWidgets.QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+    update_job_manager_buttons(main_window)
+    if selected_job_name is not None:
+        model = job_list.model()
+        index = model.match(
+            model.index(0, 0), JobDataRole.JobNameRole, selected_job_name,
+            1, Qt.MatchFlag.MatchExactly,
+        )[0]
+        job_list.setCurrentIndex(index)
+        job_list.scrollTo(index, QtWidgets.QAbstractItemView.ScrollHint.EnsureVisible)
+
+
+def remove_completed_job(main_window: "MainWindow", job_name: str):
+    """Remove the completed queue item without reloading the remaining jobs."""
+    job_list = main_window.jobQueueList
+    model = job_list.model()
+    index = model.match(
+        model.index(0, 0), JobDataRole.JobNameRole, job_name,
+        1, Qt.MatchFlag.MatchExactly,
+    )[0]
+    job_list.takeItem(index.row())
+    update_job_manager_buttons(main_window)
 
 
 def get_selected_jobs(main_window: "MainWindow") -> list[str]:
@@ -1886,9 +1954,6 @@ def load_job_settings(main_window: "MainWindow", job_data: dict):
             )
             target_face_button.calculate_assigned_input_embedding()
 
-        # Run exactly one refresh with the final restored state.
-        _restore_state_and_refresh(main_window, previous_batch_flag)
-
         print(
             f"[INFO] Lightweight settings loaded for job: {main_window.current_job_name}"
         )
@@ -1902,6 +1967,7 @@ def load_job_settings(main_window: "MainWindow", job_data: dict):
             f"An error occurred while loading settings for job:\n{e}",
         )
     finally:
+        # Recording processes the first frame; do not launch a competing preview.
         _restore_batch_refresh_state(main_window, previous_batch_flag)
         # Allow pending UI events to process before signaling completion
         QtWidgets.QApplication.processEvents()
@@ -1917,6 +1983,7 @@ def clear_job_settings(main_window: "MainWindow"):
     leaving the master assets (media, input faces, embeddings) loaded.
     """
     print("[INFO] Clear job settings called.")
+    previous_batch_flag = _begin_batch_refresh_suppression(main_window)
     try:
         card_actions.clear_target_faces(
             main_window
@@ -1931,6 +1998,7 @@ def clear_job_settings(main_window: "MainWindow"):
         traceback.print_exc()
     finally:
         # Use the instance event from the job_processor
+        _restore_batch_refresh_state(main_window, previous_batch_flag)
         if main_window.job_processor:
             main_window.job_processor.job_settings_cleared_event.set()
 
@@ -2133,17 +2201,10 @@ def start_job_processor(main_window: "MainWindow", jobs_to_process: list[str] | 
 
     # Connect signals for job completion
     main_window.job_processor.job_completed_signal.connect(
-        lambda job_name: refresh_job_list(
-            main_window
-        )  # The signal sends job_name, refresh_job_list is called
+        lambda job_name: remove_completed_job(main_window, job_name)
     )
     main_window.job_processor.finished.connect(
         lambda: handle_batch_completion(main_window)
-    )
-    main_window.job_processor.job_failed_signal.connect(
-        lambda job_name, error_msg: QMessageBox.critical(
-            main_window, "Job Failed", f"Job '{job_name}' failed:\n{error_msg}"
-        )
     )
 
     print("[INFO] Starting job_processor thread...")

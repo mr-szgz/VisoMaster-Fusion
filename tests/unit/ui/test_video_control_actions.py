@@ -1206,6 +1206,8 @@ class _FakeProgressDialog(QObject):
         self.stop_after_processing_spinbox = MagicMock(value=MagicMock(return_value=100))
         self.save_skipped_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self.save_partial_on_skip_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
+        self.minimum_partial_frames_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
+        self.minimum_partial_frames_spinbox = MagicMock(value=MagicMock(return_value=30))
         self.clear_skipped_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self._app = QApplication.instance() or QApplication([])
         self.skip_button = QPushButton("Skip")
@@ -1220,7 +1222,12 @@ class _FakeProgressDialog(QObject):
         )
         self.findChild = MagicMock(return_value=self.progress_bar)
         self.minimizedChanged = MagicMock()
-        self.set_media_properties = MagicMock()
+        self.set_media_properties = MagicMock(side_effect=lambda *args: setattr(self, "item_progress_base", self.progress_bar.value() // 1000 * 1000))
+        self.processing_started = MagicMock()
+        self.processing_stopped = MagicMock()
+        self.frame_processed = MagicMock()
+        self.update_runtime = MagicMock()
+        self.set_item_progress = lambda completed, total: self.setValue(self.item_progress_base + int(completed / total * 1000))
         self.deleteLater = MagicMock()
         _FakeProgressDialog.instances.append(self)
 
@@ -1335,6 +1342,9 @@ def _make_batch_main_window(*widgets):
         max_frame_number=0,
         fps=0,
         processing=False,
+        processing_started_signal=MagicMock(),
+        processing_stopped_signal=MagicMock(),
+        frame_processed_signal=MagicMock(),
         is_processing_segments=False,
         process_current_frame=MagicMock(side_effect=lambda synchronous=True: None),
         stop_processing=MagicMock(side_effect=lambda: None),
@@ -1349,6 +1359,7 @@ def _make_batch_main_window(*widgets):
         input_faces={"face_1": _FakeBatchInputFace()},
         merged_embeddings={},
         target_faces={"original_face": _FakeBatchTargetFace()},
+        selected_target_face_id="original_face",
         parameters={},
         control={
             "ImageFormatToggle": False,
@@ -1372,29 +1383,60 @@ def _make_batch_main_window(*widgets):
     )
 
 
+@pytest.mark.parametrize("confirmed", [False, True])
 def test_batch_save_jobs_includes_images_and_videos_without_processing(
-    monkeypatch, video_actions_env
+    monkeypatch, video_actions_env, confirmed
 ):
-    from app.ui.widgets import actions
-
-    job_actions = MagicMock()
-    job_actions.save_default_job.side_effect = ["photo", "clip_1"]
-    monkeypatch.setattr(actions, "job_manager_actions", job_actions, raising=False)
+    message_box = video_actions_env.module.QtWidgets.QMessageBox
+    question = MagicMock(return_value=message_box.Yes if confirmed else message_box.No)
+    monkeypatch.setattr(message_box, "question", question)
+    dialog = MagicMock()
+    factory = MagicMock(return_value=dialog)
+    monkeypatch.setitem(
+        sys.modules, "app.ui.widgets.batch_save_jobs_dialog",
+        SimpleNamespace(BatchSaveJobsDialog=factory),
+    )
     image = SimpleNamespace(file_type="image", media_path="photo.png")
     video = SimpleNamespace(file_type="video", media_path="clip.mp4")
     webcam = SimpleNamespace(file_type="webcam", media_path="0")
     main_window = _make_batch_main_window(image, webcam, video)
+    main_window.batch_save_jobs_dialog = None
     original_state = vars(main_window.video_processor).copy()
 
+    def reopen_active_dialog():
+        assert main_window.batch_save_jobs_dialog is dialog
+        video_actions_env.module.batch_save_jobs(main_window)
+
+    dialog.run.side_effect = reopen_active_dialog
     video_actions_env.module.batch_save_jobs(main_window)
 
-    assert [call.args[1] for call in job_actions.save_default_job.call_args_list] == [
-        image,
-        video,
-    ]
-    job_actions.refresh_job_list.assert_called_once_with(
-        main_window, selected_job_name="clip_1"
+    question.assert_called_once_with(
+        main_window,
+        "Confirm Batch Save Jobs",
+        "Found 1 images and 1 videos in the target list.\n\n"
+        "This will save a job for each item using the current face configuration.\n\n"
+        "Proceed with batch save jobs?",
+        message_box.Yes | message_box.No,
+        message_box.No,
     )
+    if not confirmed:
+        factory.assert_not_called()
+        assert main_window.batch_save_jobs_dialog is None
+        main_window.batchSaveJobsButton.setText.assert_not_called()
+        main_window.batchImageButton.setEnabled.assert_not_called()
+        main_window.batchallImageButton.setEnabled.assert_not_called()
+        assert vars(main_window.video_processor) == original_state
+        return
+
+    factory.assert_called_once_with(main_window, [image, video])
+    dialog.run.assert_called_once_with()
+    dialog.showNormal.assert_called_once_with()
+    dialog.raise_.assert_called_once_with()
+    dialog.activateWindow.assert_called_once_with()
+    assert main_window.batch_save_jobs_dialog is None
+    assert main_window.batchImageButton.setEnabled.call_args.args == (True,)
+    assert main_window.batchallImageButton.setEnabled.call_args.args == (True,)
+    dialog.deleteLater.assert_called_once_with()
     assert vars(main_window.video_processor) == original_state
     main_window.video_processor.process_current_frame.assert_not_called()
 
@@ -1785,6 +1827,9 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
 
     saved_media = []
     def save_skipped_job(mw, media):
+        assert mw.parameters[mw.selected_target_face_id] == {"Strength": 83}
+        assert mw.parameters[mw.selected_target_face_id] is not mw.current_widget_parameters
+        assert mw.control["OutputMediaFolder"] == "E:/latest-output"
         assert not mw.video_processor.processing
         if save_partial:
             assert mw.video_processor._finalize_default_style_recording.call_count == len(saved_media) + 1
@@ -1794,7 +1839,7 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
 
     monkeypatch.setattr(job_manager_actions, "save_default_job", save_skipped_job)
     refresh_jobs = MagicMock()
-    monkeypatch.setattr(job_manager_actions, "refresh_job_list", refresh_jobs)
+    monkeypatch.setattr(job_manager_actions, "refresh_new_jobs", refresh_jobs)
     _FakeProgressDialog.instances = []
     main_window = _make_batch_main_window(
         _FakeBatchMediaWidget("video", "E:/media/video_1.mp4"),
@@ -1870,6 +1915,8 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
     )
 
     def _record_video(mw, _checked):
+        mw.current_widget_parameters["Strength"] = 83
+        mw.control["OutputMediaFolder"] = "E:/latest-output"
         mw.video_processor.processing = True
         mw.video_processor.frames_written = 0
         mw.video_processor.recording = True
@@ -1943,6 +1990,6 @@ def test_active_batch_button_reopens_existing_dialog(
         batch_processing_button=MagicMock(),
     )
     video_actions_env.process_batch_images(main_window, process_all_faces)
-    dialog.show.assert_called_once()
+    dialog.showNormal.assert_called_once()
     dialog.raise_.assert_called_once()
     dialog.activateWindow.assert_called_once()

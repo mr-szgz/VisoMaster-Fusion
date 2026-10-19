@@ -28,7 +28,7 @@ for _layout_source in [SETTINGS_LAYOUT_DATA, COMMON_LAYOUT_DATA, DENOISER_LAYOUT
 def suppress_batch_notifications(display):
     @wraps(display)
     def show(main_window, *args, **kwargs):
-        if any(checkbox.isChecked() for checkbox in main_window.findChildren(
+        if main_window.is_batch_processing and any(checkbox.isChecked() for checkbox in main_window.findChildren(
             QtWidgets.QCheckBox, "suppressBatchNotificationsCheckbox"
         )):
             return
@@ -869,7 +869,7 @@ def set_widgets_values_using_face_id_parameters(
             refresh_frame(main_window)
 
 
-def set_control_widgets_values(main_window: "MainWindow", enable_exec_func=True):
+def set_control_widgets_values(main_window: "MainWindow", enable_exec_func=True, skip_exec_controls=()):
     """
     Set the values of control widgets based on the `control` data in the `main_window`.
 
@@ -893,7 +893,7 @@ def set_control_widgets_values(main_window: "MainWindow", enable_exec_func=True)
             # QUAL-05: Delegate to shared helper instead of inline isinstance chain
             _set_single_widget_value(widget, control_value)
 
-            if enable_exec_func:
+            if enable_exec_func and control_name not in skip_exec_controls:
                 # Execute any associated function, if defined
                 widget_definition = all_widget_options.get(
                     control_name

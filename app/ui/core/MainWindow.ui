@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1768</width>
-    <height>825</height>
+    <height>837</height>
    </rect>
   </property>
   <property name="font">
@@ -1459,11 +1459,22 @@
       </layout>
      </item>
      <item>
-      <widget class="QPushButton" name="refreshJobListButton">
-       <property name="text">
-        <string>Refresh Job List</string>
-       </property>
-      </widget>
+      <layout class="QHBoxLayout" name="jobHorizontalLayout_4">
+       <item>
+        <widget class="QPushButton" name="refreshJobListButton">
+         <property name="text">
+          <string>Refresh Job List</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="checkNewJobListButton">
+         <property name="text">
+          <string>Check for New</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </item>
      <item>
       <layout class="QFormLayout" name="formLayout">

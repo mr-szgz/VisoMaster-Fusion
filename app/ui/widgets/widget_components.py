@@ -2214,6 +2214,18 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.save_partial_on_skip_checkbox.setToolTip(
             "Save the recorded portion of the current video before skipping to the next item"
         )
+        self.minimum_partial_frames_row = QtWidgets.QWidget(self)
+        minimum_layout = QtWidgets.QHBoxLayout(self.minimum_partial_frames_row)
+        minimum_layout.setContentsMargins(0, 0, 0, 0)
+        self.minimum_partial_frames_checkbox = QtWidgets.QCheckBox("Minimum partial frames", self.minimum_partial_frames_row)
+        self.minimum_partial_frames_checkbox.setChecked(True)
+        self.minimum_partial_frames_spinbox = QtWidgets.QSpinBox(self.minimum_partial_frames_row)
+        self.minimum_partial_frames_spinbox.setRange(1, 2147483647)
+        self.minimum_partial_frames_spinbox.setValue(30)
+        self.minimum_partial_frames_spinbox.setSuffix(" frames")
+        minimum_layout.addWidget(self.minimum_partial_frames_checkbox)
+        minimum_layout.addWidget(self.minimum_partial_frames_spinbox)
+        minimum_layout.addStretch()
         self.clear_skipped_checkbox = QtWidgets.QCheckBox("Clear skipped target media", self)
         self.clear_skipped_checkbox.setToolTip(
             "Remove skipped items from the target list independently of saving them as jobs"
@@ -2222,10 +2234,12 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.suppress_notifications_checkbox.setObjectName("suppressBatchNotificationsCheckbox")
         self.suppress_notifications_checkbox.setToolTip("Mute batch message alerts and toast notifications")
         self.checkbox_settings = settings_group("Dialogs/BatchProcessing", self)
+        self.checkbox_settings.remove("stop_after_completion_checkbox")
         for name in (
-            "remove_completed_checkbox", "stop_after_completion_checkbox",
+            "remove_completed_checkbox",
             "stop_after_processing_checkbox",
             "save_skipped_checkbox", "save_partial_on_skip_checkbox",
+            "minimum_partial_frames_checkbox",
             "clear_skipped_checkbox", "suppress_notifications_checkbox",
         ):
             checkbox = getattr(self, name)
@@ -2233,6 +2247,13 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             if self.checkbox_settings.contains(key):
                 checkbox.setChecked(self.checkbox_settings.value(key, type=bool))
             checkbox.toggled.connect(partial(self.checkbox_settings.setValue, key))
+        if self.checkbox_settings.contains("minimum_partial_frames"):
+            self.minimum_partial_frames_spinbox.setValue(
+                self.checkbox_settings.value("minimum_partial_frames", type=int)
+            )
+        self.minimum_partial_frames_spinbox.valueChanged.connect(
+            partial(self.checkbox_settings.setValue, "minimum_partial_frames")
+        )
         if self.checkbox_settings.contains("stop_after_processing"):
             self.stop_after_processing_spinbox.setValue(
                 self.checkbox_settings.value("stop_after_processing", type=int)
@@ -2242,19 +2263,27 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         )
         self.stop_after_processing_spinbox.setEnabled(self.stop_after_processing_checkbox.isChecked())
         self.stop_after_processing_checkbox.toggled.connect(self.stop_after_processing_spinbox.setEnabled)
+        self.minimum_partial_frames_row.setEnabled(self.save_partial_on_skip_checkbox.isChecked())
+        self.save_partial_on_skip_checkbox.toggled.connect(self.minimum_partial_frames_row.setEnabled)
+        self.minimum_partial_frames_spinbox.setEnabled(self.minimum_partial_frames_checkbox.isChecked())
+        self.minimum_partial_frames_checkbox.toggled.connect(self.minimum_partial_frames_spinbox.setEnabled)
         self.media_report = QtWidgets.QWidget(self)
         report_layout = QtWidgets.QVBoxLayout(self.media_report)
         report_layout.setContentsMargins(0, 0, 0, 0)
         self.media_report_layout = QtWidgets.QGridLayout()
         self.media_report_layout.setColumnStretch(1, 1)
         self.media_report_labels = {}
-        for row, field in enumerate(("Embedding:", "Frames:", "Frame rate:", "Length:")):
+        for row, field in enumerate(("Embedding:", "Frames:", "Frame rate:", "Length:", "it/s:", "Item progress:")):
             field_label = QtWidgets.QLabel(field, self.media_report)
             value_label = QtWidgets.QLabel(self.media_report)
             value_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
             self.media_report_layout.addWidget(field_label, row, 0)
             self.media_report_layout.addWidget(value_label, row, 1)
             self.media_report_labels[field] = (field_label, value_label)
+        self.media_report_labels["it/s:"][1].setText("0.00")
+        self.media_report_labels["Item progress:"][1].setText("0.0%")
+        self.processing_rate_clock = QtCore.QElapsedTimer()
+        self.processed_frames_since_update = 0
         report_layout.addLayout(self.media_report_layout)
         report_layout.addSpacing(4)
         report_bottom_line = QtWidgets.QFrame(self.media_report)
@@ -2273,6 +2302,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             + self.stop_after_processing_row.sizeHint().height() + 12
             + self.save_skipped_checkbox.sizeHint().height() + 12
             + self.save_partial_on_skip_checkbox.sizeHint().height() + 12
+            + self.minimum_partial_frames_row.sizeHint().height() + 12
             + self.clear_skipped_checkbox.sizeHint().height() + 12
             + self.suppress_notifications_checkbox.sizeHint().height() + 12
             + self.media_report.sizeHint().height() + 62
@@ -2317,12 +2347,47 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.runtime_label.setText(f"Runtime: {hours:02}:{minutes:02}:{seconds:02}")
         self.runtime_label.adjustSize()
 
+        if self.processing_rate_clock.isValid():
+            elapsed_seconds = self.processing_rate_clock.nsecsElapsed() / 1_000_000_000
+            rate = self.processed_frames_since_update / elapsed_seconds
+            self.media_report_labels["it/s:"][1].setText(f"{rate:.2f}")
+            self.processed_frames_since_update = 0
+            self.processing_rate_clock.restart()
+
+    @QtCore.Slot()
+    def processing_started(self):
+        self.processed_frames_since_update = 0
+        self.processing_rate_clock.start()
+        self.media_report_labels["it/s:"][1].setText("0.00")
+
+    @QtCore.Slot()
+    def frame_processed(self):
+        if self.processing_rate_clock.isValid():
+            self.processed_frames_since_update += 1
+
+    @QtCore.Slot()
+    def processing_stopped(self):
+        self.processing_rate_clock.invalidate()
+        self.processed_frames_since_update = 0
+        self.media_report_labels["it/s:"][1].setText("0.00")
+
+    def set_item_progress(self, completed_frames, total_frames):
+        fraction = completed_frames / total_frames
+        self.media_report_labels["Frames:"][1].setText(f"{completed_frames:,} / {total_frames:,}")
+        self.media_report_labels["Item progress:"][1].setText(f"{fraction:.1%}")
+        self.setValue(self.item_progress_base + int(fraction * 1000))
+
     def request_skip(self):
         partial_output = (
             "Save the partial recording."
             if self.save_partial_on_skip_checkbox.isChecked()
             else "Discard the partial recording."
         )
+        if self.save_partial_on_skip_checkbox.isChecked() and self.minimum_partial_frames_checkbox.isChecked():
+            partial_output = (
+                f"Save the partial recording only if at least {self.minimum_partial_frames_spinbox.value()} frames "
+                "have been recorded; otherwise discard it."
+            )
         reply = QtWidgets.QMessageBox.question(
             self,
             "Confirm skip",
@@ -2354,8 +2419,11 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.cancel_button.setEnabled(False)
 
     def set_media_properties(self, embedding_names, total_frames, frame_rate):
+        self.processing_stopped()
+        self.item_progress_base = self.value() // 1000 * 1000
         self.media_report_labels["Embedding:"][1].setText(", ".join(embedding_names))
-        self.media_report_labels["Frames:"][1].setText(f"{total_frames:,}")
+        self.media_report_labels["Frames:"][1].setText(f"0 / {total_frames:,}")
+        self.media_report_labels["Item progress:"][1].setText("0.0%")
         for field in ("Frame rate:", "Length:"):
             for label in self.media_report_labels[field]:
                 label.setVisible(frame_rate > 0)
@@ -2390,8 +2458,12 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.clear_skipped_checkbox.adjustSize()
         clear_checkbox_y = self.checkbox_separator.y() - self.clear_skipped_checkbox.height() - 12
         self.clear_skipped_checkbox.move(bar.x(), clear_checkbox_y)
+        minimum_y = clear_checkbox_y - self.minimum_partial_frames_row.sizeHint().height() - 12
+        self.minimum_partial_frames_row.setGeometry(
+            bar.x(), minimum_y, bar.width(), self.minimum_partial_frames_row.sizeHint().height()
+        )
         self.save_partial_on_skip_checkbox.adjustSize()
-        partial_checkbox_y = clear_checkbox_y - self.save_partial_on_skip_checkbox.height() - 12
+        partial_checkbox_y = minimum_y - self.save_partial_on_skip_checkbox.height() - 12
         self.save_partial_on_skip_checkbox.move(bar.x(), partial_checkbox_y)
         self.save_skipped_checkbox.adjustSize()
         save_checkbox_y = partial_checkbox_y - self.save_skipped_checkbox.height() - 12
@@ -2429,14 +2501,13 @@ class ProgressDialog(QtWidgets.QProgressDialog):
     def showEvent(self, event):
         super().showEvent(event)
         self.position_batch_controls()
-        self.minimizedChanged.emit(False)
 
     def changeEvent(self, event):
         super().changeEvent(event)
-        if event.type() == QtCore.QEvent.WindowStateChange and self.isMinimized():
-            self.hide()
-            self.setWindowState(QtCore.Qt.WindowNoState)
-            self.minimizedChanged.emit(True)
+        if event.type() == QtCore.QEvent.WindowStateChange:
+            was_minimized = bool(event.oldState() & QtCore.Qt.WindowMinimized)
+            if was_minimized != self.isMinimized():
+                self.minimizedChanged.emit(self.isMinimized())
 
     def confirmedCanceled(self) -> bool:
         """Return True only if the user confirmed stopping."""

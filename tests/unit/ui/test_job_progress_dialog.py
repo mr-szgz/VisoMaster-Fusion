@@ -7,6 +7,49 @@ import sys
 import textwrap
 
 
+def test_job_progress_checkbox_preferences(tmp_path):
+    script = textwrap.dedent('''
+        import sys
+        from PySide6 import QtCore, QtWidgets
+        from app.ui.widgets import job_progress_dialog
+
+        app = QtWidgets.QApplication([])
+        def isolated_settings(namespace, parent):
+            settings = QtCore.QSettings(sys.argv[1], QtCore.QSettings.IniFormat, parent)
+            settings.beginGroup(namespace)
+            return settings
+        job_progress_dialog.settings_group = isolated_settings
+        settings = isolated_settings("Dialogs/JobProcessing", app)
+        for checked in (True, False):
+            settings.setValue("stop_after_completion_checkbox", True)
+            dialog = job_progress_dialog.JobProgressDialog(None, {})
+            assert not dialog.stop_after_completion_checkbox.isChecked()
+            assert not settings.contains("stop_after_completion_checkbox")
+            dialog.stop_after_completion_checkbox.setChecked(True)
+            assert not settings.contains("stop_after_completion_checkbox")
+            dialog.save_partial_on_skip_checkbox.setChecked(not checked)
+            dialog.save_partial_on_skip_checkbox.setChecked(checked)
+            dialog.finish()
+            reopened = job_progress_dialog.JobProgressDialog(None, {})
+            assert not reopened.stop_after_completion_checkbox.isChecked()
+            assert reopened.save_partial_on_skip_checkbox.isChecked() == checked
+            assert settings.value("save_partial_on_skip_checkbox", type=bool) == checked
+            reopened.finish()
+            dialog.deleteLater()
+            reopened.deleteLater()
+            app.processEvents()
+    ''')
+    result = subprocess.run(
+        [sys.executable, "-u", "-c", script, str(tmp_path / "dialogs.ini")],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_job_progress_lifecycle(tmp_path):
     script = textwrap.dedent('''
         import os
