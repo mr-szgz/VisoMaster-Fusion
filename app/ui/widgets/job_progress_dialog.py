@@ -74,7 +74,7 @@ class JobProgressDialog(QtWidgets.QDialog):
             "Finish and save the current job, then stop before loading the next job"
         )
         layout.addWidget(self.stop_after_completion_checkbox)
-        self.save_partial_on_skip_checkbox = QtWidgets.QCheckBox("Save partial video on skip", self)
+        self.save_partial_on_skip_checkbox = QtWidgets.QCheckBox("Save partial videos", self)
         self.save_partial_on_skip_checkbox.setToolTip(
             "Save the recorded portion of the current video before skipping to the next job"
         )
