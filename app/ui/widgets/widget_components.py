@@ -2,6 +2,7 @@
 import os
 import traceback
 from functools import partial
+from math import ceil
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, List
 from send2trash import send2trash
@@ -2273,15 +2274,18 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.media_report_layout = QtWidgets.QGridLayout()
         self.media_report_layout.setColumnStretch(1, 1)
         self.media_report_labels = {}
-        for row, field in enumerate(("Embedding:", "Frames:", "Frame rate:", "Length:", "it/s:", "Item progress:")):
+        for row, field in enumerate(("Embedding:", "Frames:", "Frame rate:", "Length:", "f/s:", "Item progress:")):
             field_label = QtWidgets.QLabel(field, self.media_report)
             value_label = QtWidgets.QLabel(self.media_report)
             value_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
             self.media_report_layout.addWidget(field_label, row, 0)
             self.media_report_layout.addWidget(value_label, row, 1)
             self.media_report_labels[field] = (field_label, value_label)
-        self.media_report_labels["it/s:"][1].setText("0.00")
+        self.media_report_labels["f/s:"][1].setText("0.00")
         self.media_report_labels["Item progress:"][1].setText("0.0%")
+        self.eta_label = QtWidgets.QLabel("ETA: --:--:--", self.media_report)
+        self.media_report_layout.addWidget(self.eta_label, row, 2)
+        self.remaining_frames = 0
         self.processing_rate_clock = QtCore.QElapsedTimer()
         self.processed_frames_since_update = 0
         report_layout.addLayout(self.media_report_layout)
@@ -2350,7 +2354,15 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         if self.processing_rate_clock.isValid():
             elapsed_seconds = self.processing_rate_clock.nsecsElapsed() / 1_000_000_000
             rate = self.processed_frames_since_update / elapsed_seconds
-            self.media_report_labels["it/s:"][1].setText(f"{rate:.2f}")
+            self.media_report_labels["f/s:"][1].setText(f"{rate:.2f}")
+            if self.remaining_frames == 0:
+                self.eta_label.setText("ETA: 00:00:00")
+            elif rate > 0:
+                hours, remainder = divmod(ceil(self.remaining_frames / rate), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                self.eta_label.setText(f"ETA: {hours:02}:{minutes:02}:{seconds:02}")
+            else:
+                self.eta_label.setText("ETA: --:--:--")
             self.processed_frames_since_update = 0
             self.processing_rate_clock.restart()
 
@@ -2358,7 +2370,8 @@ class ProgressDialog(QtWidgets.QProgressDialog):
     def processing_started(self):
         self.processed_frames_since_update = 0
         self.processing_rate_clock.start()
-        self.media_report_labels["it/s:"][1].setText("0.00")
+        self.media_report_labels["f/s:"][1].setText("0.00")
+        self.eta_label.setText("ETA: --:--:--")
 
     @QtCore.Slot()
     def frame_processed(self):
@@ -2369,10 +2382,15 @@ class ProgressDialog(QtWidgets.QProgressDialog):
     def processing_stopped(self):
         self.processing_rate_clock.invalidate()
         self.processed_frames_since_update = 0
-        self.media_report_labels["it/s:"][1].setText("0.00")
+        self.media_report_labels["f/s:"][1].setText("0.00")
+        if self.remaining_frames != 0:
+            self.eta_label.setText("ETA: --:--:--")
 
     def set_item_progress(self, completed_frames, total_frames):
         fraction = completed_frames / total_frames
+        self.remaining_frames = total_frames - completed_frames
+        if completed_frames == total_frames:
+            self.eta_label.setText("ETA: 00:00:00")
         self.media_report_labels["Frames:"][1].setText(f"{completed_frames:,} / {total_frames:,}")
         self.media_report_labels["Item progress:"][1].setText(f"{fraction:.1%}")
         self.setValue(self.item_progress_base + int(fraction * 1000))
@@ -2421,6 +2439,8 @@ class ProgressDialog(QtWidgets.QProgressDialog):
     def set_media_properties(self, embedding_names, total_frames, frame_rate):
         self.processing_stopped()
         self.item_progress_base = self.value() // 1000 * 1000
+        self.remaining_frames = total_frames
+        self.eta_label.setText("ETA: --:--:--")
         self.media_report_labels["Embedding:"][1].setText(", ".join(embedding_names))
         self.media_report_labels["Frames:"][1].setText(f"0 / {total_frames:,}")
         self.media_report_labels["Item progress:"][1].setText("0.0%")

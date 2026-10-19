@@ -81,6 +81,9 @@ def test_job_progress_lifecycle(tmp_path):
             frame_processed_signal = QtCore.Signal()
             is_processing_segments = False
             recording = False
+            max_frame_number = 49
+            next_frame_to_display = 0
+            media_pipeline = SimpleNamespace(absolute_frames_processed=0)
             def stop_processing(self):
                 self.processing_stopped_signal.emit()
 
@@ -155,6 +158,8 @@ def test_job_progress_lifecycle(tmp_path):
                         mw.job_processor.master_assets_loaded_event.set()
 
                 def process(worker, name):
+                    window.video_processor.max_frame_number = 49 if name == "A" else 0
+                    window.video_processor.media_pipeline.absolute_frames_processed = 0
                     window.video_processor.processing_started_signal.emit()
                     while not gates[name].wait(0.01):
                         if worker.cancel_requested_event.is_set() or worker.stop_requested_event.is_set():
@@ -299,3 +304,96 @@ def test_job_progress_lifecycle(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Traceback" not in result.stderr, result.stderr
     assert "PASS both job commands" in result.stdout
+
+
+def test_job_progress_eta(tmp_path):
+    script = textwrap.dedent('''
+        import sys
+        from unittest.mock import MagicMock
+        from PySide6 import QtCore, QtWidgets
+        from app.ui.widgets import job_progress_dialog
+        from app.ui.widgets.job_list_widgets import JobDataRole
+
+        app = QtWidgets.QApplication([])
+        def isolated_settings(namespace, parent):
+            return QtCore.QSettings(sys.argv[1], QtCore.QSettings.IniFormat, parent)
+        job_progress_dialog.settings_group = isolated_settings
+        item = QtWidgets.QListWidgetItem("A")
+        item.setData(JobDataRole.FrameCountRole, 36620)
+        item.setData(JobDataRole.FrameRateRole, 25.0)
+        item.setData(JobDataRole.EmbeddingNamesRole, [])
+        window = QtWidgets.QMainWindow()
+        window.video_processor = MagicMock(
+            is_processing_segments=False, max_frame_number=36619, next_frame_to_display=0,
+            media_pipeline=MagicMock(absolute_frames_processed=20),
+        )
+        dialog = job_progress_dialog.JobProgressDialog(window, {"A": item})
+        dialog.job_started("A", 1)
+        dialog.processing_started()
+        assert dialog.eta_label.text() == "ETA: --:--:--"
+        clock = MagicMock(isValid=MagicMock(return_value=True),
+                         nsecsElapsed=MagicMock(return_value=2_000_000_000))
+        dialog.processing_rate_clock = clock
+        for _ in range(20):
+            dialog.frame_processed()
+        dialog.update_runtime()
+        assert dialog.report_labels["f/s:"][1].text() == "10.00"
+        assert dialog.eta_label.text() == "ETA: 01:01:00"
+        dialog.update_runtime()
+        assert dialog.eta_label.text() == "ETA: --:--:--"
+        item.setData(JobDataRole.FrameCountRole, 1)
+        window.video_processor.max_frame_number = 0
+        window.video_processor.media_pipeline.absolute_frames_processed = 1
+        dialog.job_started("A", 1)
+        dialog.processing_started()
+        dialog.frame_processed()
+        dialog.update_runtime()
+        assert dialog.report_labels["Item progress:"][1].text() == "100.0%"
+        assert dialog.eta_label.text() == "ETA: 00:00:00"
+        dialog.update_runtime()
+        assert dialog.eta_label.text() == "ETA: 00:00:00"
+        dialog.processing_stopped()
+        assert dialog.eta_label.text() == "ETA: 00:00:00"
+        item.setData(JobDataRole.FrameCountRole, 50)
+        dialog.job_started("A", 1)
+        assert dialog.report_labels["Item progress:"][1].text() == "0.0%"
+        assert dialog.eta_label.text() == "ETA: --:--:--"
+        # Output range, rather than source metadata, controls the estimate.
+        window.video_processor.max_frame_number = 29
+        window.video_processor.next_frame_to_display = 10
+        window.video_processor.media_pipeline.absolute_frames_processed = 10
+        dialog.processing_started()
+        dialog.frame_processed()
+        dialog.update_runtime()
+        assert dialog.report_labels["Item progress:"][1].text() == "50.0%"
+        assert dialog.eta_label.text() == "ETA: 00:00:20"
+        # Both ends of each recorded segment are included.
+        window.video_processor.is_processing_segments = True
+        window.video_processor.segments_to_process = [(10, 19), (30, 39)]
+        dialog.processing_started()
+        dialog.frame_processed()
+        dialog.update_runtime()
+        assert dialog.report_labels["Item progress:"][1].text() == "50.0%"
+        assert dialog.eta_label.text() == "ETA: 00:00:20"
+        dialog.processing_stopped()
+        assert dialog.eta_label.text() == "ETA: --:--:--"
+        dialog.job_completed("A")
+        assert dialog.report_labels["Item progress:"][1].text() == "100.0%"
+        assert dialog.eta_label.text() == "ETA: 00:00:00"
+        dialog.show()
+        app.processEvents()
+        progress = dialog.report_labels["Item progress:"][1]
+        assert progress.geometry().right() < dialog.eta_label.x()
+        assert progress.geometry().center().y() == dialog.eta_label.geometry().center().y()
+        assert dialog.eta_label.geometry().right() < dialog.width()
+        dialog.finish()
+    ''')
+    result = subprocess.run(
+        [sys.executable, "-u", "-c", script, str(tmp_path / "dialogs.ini")],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

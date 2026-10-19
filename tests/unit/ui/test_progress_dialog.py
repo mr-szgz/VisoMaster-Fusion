@@ -239,6 +239,10 @@ def test_batch_media_properties_update_without_job_data(progress_dialog_module, 
     assert labels["Frame rate:"][1].text() == "25 fps"
     assert labels["Length:"][1].text() == "01:00:00"
     assert labels["Length:"][1].isVisible()
+    progress = labels["Item progress:"][1]
+    assert progress.geometry().right() < dialog.eta_label.x()
+    assert progress.geometry().center().y() == dialog.eta_label.geometry().center().y()
+    assert dialog.eta_label.geometry().right() < dialog.media_report.width()
     title = dialog.findChild(QtWidgets.QLabel)
     bar = dialog.findChild(QtWidgets.QProgressBar)
     assert title.geometry().bottom() < bar.y()
@@ -543,6 +547,7 @@ def test_batch_dialog_frame_rate_and_item_progress(progress_dialog_module, qapp)
     dialog.setValue(1000)
     dialog.set_media_properties([], 100, 25)
     dialog.processing_started()
+    assert dialog.eta_label.text() == "ETA: --:--:--"
     for _ in range(25):
         dialog.frame_processed()
     assert dialog.processed_frames_since_update == 25
@@ -553,17 +558,29 @@ def test_batch_dialog_frame_rate_and_item_progress(progress_dialog_module, qapp)
     assert dialog.value() == 1250
     assert dialog.media_report_labels["Frames:"][1].text() == "25 / 100"
     assert dialog.media_report_labels["Item progress:"][1].text() == "25.0%"
-    assert dialog.media_report_labels["it/s:"][1].text() == "12.50"
+    assert dialog.media_report_labels["f/s:"][1].text() == "12.50"
+    assert dialog.eta_label.text() == "ETA: 00:00:06"
     assert dialog.processed_frames_since_update == 0
     clock.restart.assert_called_once()
+    dialog.update_runtime()
+    assert dialog.eta_label.text() == "ETA: --:--:--"
+    dialog.processed_frames_since_update = 25
+    dialog.set_item_progress(99, 100)
+    dialog.update_runtime()
+    assert dialog.eta_label.text() == "ETA: 00:00:01"
     dialog.set_item_progress(100, 100)
+    assert dialog.eta_label.text() == "ETA: 00:00:00"
     assert dialog.value() == 2000
+    dialog.update_runtime()
+    assert dialog.eta_label.text() == "ETA: 00:00:00"
     dialog.processing_stopped()
     clock.invalidate.assert_called_once()
-    assert dialog.media_report_labels["it/s:"][1].text() == "0.00"
+    assert dialog.media_report_labels["f/s:"][1].text() == "0.00"
+    assert dialog.eta_label.text() == "ETA: 00:00:00"
     clock.isValid.return_value = False
     dialog.set_media_properties([], 1, 0)
     assert dialog.media_report_labels["Frames:"][1].text() == "0 / 1"
+    assert dialog.eta_label.text() == "ETA: --:--:--"
     assert dialog.media_report_labels["Item progress:"][1].text() == "0.0%"
     dialog.set_item_progress(1, 1)
     assert dialog.value() == 3000

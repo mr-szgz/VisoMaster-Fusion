@@ -1,5 +1,6 @@
 from PySide6 import QtCore, QtGui, QtWidgets
 from functools import partial
+from math import ceil
 
 from app.settings import settings_group
 from app.ui.widgets.job_list_widgets import JobDataRole
@@ -25,6 +26,8 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.current_job_name = ""
         self.processing_rate_clock = QtCore.QElapsedTimer()
         self.processed_frames_since_update = 0
+        self.completed_frames = 0
+        self.total_frames = 0
         self.setWindowTitle("Job Processing")
         self.setWindowIcon(QtGui.QIcon(":/media/media/visomaster_small.png"))
         self.setWindowFlag(QtCore.Qt.WindowMinimizeButtonHint, True)
@@ -46,7 +49,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.report_labels = {}
         for row, field in enumerate((
             "Embedding:", "Frames:", "Frame rate:",
-            "Length:", "it/s:",
+            "Length:", "f/s:", "Item progress:",
         )):
             label = QtWidgets.QLabel(field, self)
             value = QtWidgets.QLabel(self)
@@ -56,7 +59,10 @@ class JobProgressDialog(QtWidgets.QDialog):
             report.addWidget(label, row, 0)
             report.addWidget(value, row, 1)
             self.report_labels[field] = (label, value)
-        self.report_labels["it/s:"][1].setText("0.00")
+        self.report_labels["f/s:"][1].setText("0.00")
+        self.report_labels["Item progress:"][1].setText("0.0%")
+        self.eta_label = QtWidgets.QLabel("ETA: --:--:--", self)
+        report.addWidget(self.eta_label, row, 2)
         layout.addLayout(report)
         properties_separator = QtWidgets.QFrame(self)
         properties_separator.setFrameShape(QtWidgets.QFrame.HLine)
@@ -126,6 +132,10 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.current_job_name = job_name
         self.skip_button.setEnabled(False)
         frames = item.data(JobDataRole.FrameCountRole)
+        self.total_frames = frames
+        self.completed_frames = 0
+        self.report_labels["Item progress:"][1].setText("0.0%")
+        self.eta_label.setText("ETA: --:--:--")
         fps = item.data(JobDataRole.FrameRateRole)
         values = {
             "Embedding:": ", ".join(item.data(JobDataRole.EmbeddingNamesRole)),
@@ -146,9 +156,16 @@ class JobProgressDialog(QtWidgets.QDialog):
 
     @QtCore.Slot()
     def processing_started(self):
+        processor = self.parentWidget().video_processor
+        if processor.is_processing_segments:
+            self.total_frames = sum(end - start + 1 for start, end in processor.segments_to_process)
+        else:
+            self.total_frames = processor.max_frame_number - processor.next_frame_to_display + 1
+        self.completed_frames = 0
         self.processed_frames_since_update = 0
         self.processing_rate_clock.start()
-        self.report_labels["it/s:"][1].setText("0.00")
+        self.eta_label.setText("ETA: --:--:--")
+        self.report_labels["f/s:"][1].setText("0.00")
         self.skip_button.setEnabled(True)
         self.status_label.setText(
             f"Processing job ({self.current_index}/{self.total_jobs}): {self.current_job_name}"
@@ -161,13 +178,19 @@ class JobProgressDialog(QtWidgets.QDialog):
 
     @QtCore.Slot()
     def processing_stopped(self):
+        self.update_runtime()
         self.processing_rate_clock.invalidate()
+        if self.completed_frames != self.total_frames:
+            self.eta_label.setText("ETA: --:--:--")
         self.processed_frames_since_update = 0
-        self.report_labels["it/s:"][1].setText("0.00")
+        self.report_labels["f/s:"][1].setText("0.00")
 
     @QtCore.Slot(str)
     def job_completed(self, job_name):
         self.completed_job_names.add(job_name)
+        self.completed_frames = self.total_frames
+        self.report_labels["Item progress:"][1].setText("100.0%")
+        self.eta_label.setText("ETA: 00:00:00")
         self.skip_button.setEnabled(False)
         self.progress_bar.setValue(self.current_index)
         self.status_label.setText(f"Completed job {self.current_index}/{self.total_jobs}: {job_name}")
@@ -197,9 +220,22 @@ class JobProgressDialog(QtWidgets.QDialog):
         minutes, seconds = divmod(remainder, 60)
         self.runtime_label.setText(f"Runtime: {hours:02}:{minutes:02}:{seconds:02}")
         if self.processing_rate_clock.isValid():
+            self.completed_frames = self.parentWidget().video_processor.media_pipeline.absolute_frames_processed
+            self.report_labels["Item progress:"][1].setText(
+                f"{self.completed_frames / self.total_frames:.1%}"
+            )
             elapsed_seconds = self.processing_rate_clock.nsecsElapsed() / 1_000_000_000
             rate = self.processed_frames_since_update / elapsed_seconds
-            self.report_labels["it/s:"][1].setText(f"{rate:.2f}")
+            self.report_labels["f/s:"][1].setText(f"{rate:.2f}")
+            if self.completed_frames == self.total_frames:
+                self.eta_label.setText("ETA: 00:00:00")
+            elif rate > 0:
+                remaining_frames = self.total_frames - self.completed_frames
+                hours, remainder = divmod(ceil(remaining_frames / rate), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                self.eta_label.setText(f"ETA: {hours:02}:{minutes:02}:{seconds:02}")
+            else:
+                self.eta_label.setText("ETA: --:--:--")
             self.processed_frames_since_update = 0
             self.processing_rate_clock.restart()
 
