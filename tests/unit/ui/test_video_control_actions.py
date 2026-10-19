@@ -1202,6 +1202,8 @@ class _FakeProgressDialog(QObject):
         self.stop_after_completion_checkbox = MagicMock(
             isChecked=MagicMock(return_value=False)
         )
+        self.stop_after_processing_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
+        self.stop_after_processing_spinbox = MagicMock(value=MagicMock(return_value=100))
         self.save_skipped_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self.save_partial_on_skip_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self.clear_skipped_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
@@ -1397,6 +1399,63 @@ def test_batch_save_jobs_includes_images_and_videos_without_processing(
     main_window.video_processor.process_current_frame.assert_not_called()
 
 
+@pytest.mark.parametrize("enabled,limit,processed", [(True, 1, 1), (True, 2, 2), (True, 100, 3), (False, 1, 3)])
+@pytest.mark.parametrize("first_outcome", ["processed", "failed", "skipped"])
+def test_process_batch_images_stops_at_processed_item_limit(
+    monkeypatch, video_actions_env, enabled, limit, processed, first_outcome
+):
+    _FakeProgressDialog.instances = []
+    module = video_actions_env.module
+    media_count = 3 + int(first_outcome != "processed")
+    main_window = _make_batch_main_window(*[
+        _FakeBatchMediaWidget("image", f"E:/media/image_{index}.png")
+        for index in range(media_count)
+    ])
+    monkeypatch.setattr(module.widget_components, "ProgressDialog", _FakeProgressDialog)
+    monkeypatch.setattr(module.numpy, "ndarray", _FakeBatchFrame, raising=False)
+    monkeypatch.setattr(module.QtWidgets.QMessageBox, "question", lambda *_args: module.QtWidgets.QMessageBox.Yes)
+    monkeypatch.setattr(module.os, "makedirs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module.misc_helpers, "read_image_file", lambda *_args: _FakeBatchFrame())
+    monkeypatch.setattr(module.misc_helpers, "get_output_file_path", lambda *_args, **_kwargs: "E:/output/image.png")
+    writer = MagicMock()
+    monkeypatch.setattr(module.Image, "fromarray", writer)
+
+    def configure_limit():
+        dialog = _FakeProgressDialog.instances[-1]
+        dialog.stop_after_processing_checkbox.isChecked.return_value = enabled
+        dialog.stop_after_processing_spinbox.value.return_value = limit
+        dialog.remove_completed_checkbox.isChecked.return_value = True
+
+    monkeypatch.setattr(module.QtWidgets.QApplication, "processEvents", configure_limit)
+    if first_outcome == "failed":
+        main_window.video_processor.process_current_frame.side_effect = [ValueError("Processing failed")] + [None] * 3
+    elif first_outcome == "skipped":
+        def skip_first(**_kwargs):
+            if main_window.video_processor.process_current_frame.call_count == 1:
+                _FakeProgressDialog.instances[-1].skip_button.click()
+        main_window.video_processor.process_current_frame.side_effect = skip_first
+
+    video_actions_env.process_batch_images(main_window, process_all_faces=False)
+
+    dialog = _FakeProgressDialog.instances[-1]
+    message = video_actions_env.common_widget_actions.create_and_show_messagebox.call_args.args[2]
+    assert writer.return_value.save.call_count == processed
+    assert main_window.targetVideosList.count() == media_count - processed
+    assert not dialog.stop_after_completion_checkbox.isChecked()
+    assert dialog.stop_requested == (enabled and limit <= 3)
+    assert dialog.closed_without_confirmation == 1
+    if dialog.stop_requested:
+        assert "Batch processing stopped." in message
+        assert f"Processed: {processed}" in message
+        assert f"Processed item limit reached: {limit}" in message
+        assert f"Failed: {int(first_outcome == 'failed')}" in message
+    else:
+        assert f"Successfully processed: {processed}" in message
+        assert "Processed item limit reached" not in message
+    assert f"Skipped: {int(first_outcome == 'skipped')}" in message
+    assert not main_window.is_batch_processing
+
+
 @pytest.mark.parametrize("skip", [False, True])
 def test_process_batch_images_all_faces_uses_non_confirming_close(
     monkeypatch, video_actions_env, skip
@@ -1544,9 +1603,10 @@ def test_cancel_current_image_before_save(
 @pytest.mark.parametrize("remove_completed", [False, True])
 @pytest.mark.parametrize("video_saved", [False, True])
 @pytest.mark.parametrize("stop_after_completion", [False, True])
+@pytest.mark.parametrize("stop_after_processing", [False, True])
 def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
     monkeypatch, video_actions_env, image_fails, remove_completed, video_saved,
-    stop_after_completion
+    stop_after_completion, stop_after_processing
 ):
     _FakeProgressDialog.instances = []
     main_window = _make_batch_main_window(
@@ -1642,6 +1702,8 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
     def _process_events():
         _FakeProgressDialog.instances[-1].remove_completed_checkbox.isChecked.return_value = remove_completed
         _FakeProgressDialog.instances[-1].stop_after_completion_checkbox.isChecked.return_value = stop_after_completion
+        _FakeProgressDialog.instances[-1].stop_after_processing_checkbox.isChecked.return_value = stop_after_processing
+        _FakeProgressDialog.instances[-1].stop_after_processing_spinbox.value.return_value = 2
         if main_window.video_processor.processing:
             main_window.video_processor.frames_written += 2
             if main_window.video_processor.frames_written == 4:
@@ -1672,8 +1734,10 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
     assert progress_dialog.set_media_properties.call_args_list[0].args == (["Alice"], 1, 0)
     if not stopped_after_image:
         assert progress_dialog.set_media_properties.call_args_list[1].args == (["Alice"], 10, 24)
-    stopped = stop_after_completion and (not image_fails or video_saved)
     processed = 1 if image_fails or stopped_after_image else 2
+    limit_reached = stop_after_processing and processed >= 2
+    stopped = (stop_after_completion and (not image_fails or video_saved)) or limit_reached
+    assert ("Processed item limit reached: 2" in message) == limit_reached
     if stopped:
         assert "Batch processing stopped." in message
         assert f"Processed: {processed}" in message

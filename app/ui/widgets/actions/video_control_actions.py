@@ -2872,6 +2872,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     processed_count = 0
     failed_count = 0
     skipped_count = 0
+    processing_limit_reached = False
 
     try:
         # 7. Processing Loop
@@ -3209,6 +3210,12 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
             if not progress_dialog.confirmedCanceled():
                 progress_dialog.setValue((processed_count + failed_count + skipped_count) * 1000)
+                if (
+                    progress_dialog.stop_after_processing_checkbox.isChecked()
+                    and processed_count >= progress_dialog.stop_after_processing_spinbox.value()
+                ):
+                    processing_limit_reached = True
+                    progress_dialog.stop_requested = True
             if progress_dialog.stop_requested:
                 break
 
@@ -3245,6 +3252,8 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                 f"Failed to process: {failed_count}"
             )
 
+        if processing_limit_reached:
+            result_msg += f"\nProcessed item limit reached: {progress_dialog.stop_after_processing_spinbox.value()}"
         result_msg += f"\nSkipped: {skipped_count}"
         result_msg += f"\n{progress_dialog.runtime_label.text()}"
         progress_dialog.deleteLater()

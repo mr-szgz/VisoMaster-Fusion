@@ -456,3 +456,29 @@ def test_skip_requires_confirmation(progress_dialog_module, qapp, monkeypatch, r
     assert prompt.call_args.args[-1] == QtWidgets.QMessageBox.No
     assert ("Save the partial recording." if save_partial else "Discard the partial recording.") in prompt.call_args.args[2]
     dialog.close_without_confirmation()
+
+
+@pytest.mark.qt
+def test_stop_after_processing_settings_and_layout(progress_dialog_module, qapp):
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2000)
+    assert not dialog.stop_after_processing_checkbox.isChecked()
+    assert dialog.stop_after_processing_spinbox.value() == 100
+    assert not dialog.stop_after_processing_spinbox.isEnabled()
+    dialog.stop_after_processing_checkbox.setChecked(True)
+    assert dialog.stop_after_processing_spinbox.isEnabled()
+    assert not dialog.stop_after_completion_checkbox.isChecked()
+    dialog.stop_after_processing_spinbox.setValue(25)
+    dialog.show()
+    _flush_qt_events(qapp)
+    assert dialog.checkbox_separator.geometry().bottom() < dialog.stop_after_completion_checkbox.y()
+    assert dialog.stop_after_completion_checkbox.geometry().bottom() < dialog.stop_after_processing_row.y()
+    assert dialog.stop_after_processing_row.geometry().bottom() < dialog.suppress_notifications_checkbox.y()
+    assert dialog.suppress_notifications_checkbox.geometry().bottom() < dialog.buttons_separator.y()
+    dialog.close_without_confirmation()
+    reopened = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2000)
+    assert reopened.stop_after_processing_checkbox.isChecked()
+    assert reopened.stop_after_processing_spinbox.value() == 25
+    assert reopened.stop_after_processing_spinbox.isEnabled()
+    reopened.stop_after_processing_checkbox.setChecked(False)
+    assert not reopened.stop_after_processing_spinbox.isEnabled()
+    reopened.close_without_confirmation()

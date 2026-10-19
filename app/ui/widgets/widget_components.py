@@ -2194,11 +2194,23 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.stop_after_completion_checkbox.setToolTip(
             "Finish and save the current item, then stop before loading the next media"
         )
+        self.stop_after_processing_row = QtWidgets.QWidget(self)
+        stop_limit_layout = QtWidgets.QHBoxLayout(self.stop_after_processing_row)
+        stop_limit_layout.setContentsMargins(0, 0, 0, 0)
+        self.stop_after_processing_checkbox = QtWidgets.QCheckBox("Stop after processing", self.stop_after_processing_row)
+        self.stop_after_processing_checkbox.setToolTip("Stop the batch once the processed item count reaches the limit")
+        self.stop_after_processing_spinbox = QtWidgets.QSpinBox(self.stop_after_processing_row)
+        self.stop_after_processing_spinbox.setRange(1, 2147483647)
+        self.stop_after_processing_spinbox.setValue(100)
+        self.stop_after_processing_spinbox.setSuffix(" items")
+        stop_limit_layout.addWidget(self.stop_after_processing_checkbox)
+        stop_limit_layout.addWidget(self.stop_after_processing_spinbox)
+        stop_limit_layout.addStretch()
         self.save_skipped_checkbox = QtWidgets.QCheckBox("Save skipped items as jobs", self)
         self.save_skipped_checkbox.setToolTip(
             "Save the skipped item with its current settings as a job to process later"
         )
-        self.save_partial_on_skip_checkbox = QtWidgets.QCheckBox("Save partial video on skip", self)
+        self.save_partial_on_skip_checkbox = QtWidgets.QCheckBox("Save partial videos", self)
         self.save_partial_on_skip_checkbox.setToolTip(
             "Save the recorded portion of the current video before skipping to the next item"
         )
@@ -2212,6 +2224,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.checkbox_settings = settings_group("Dialogs/BatchProcessing", self)
         for name in (
             "remove_completed_checkbox", "stop_after_completion_checkbox",
+            "stop_after_processing_checkbox",
             "save_skipped_checkbox", "save_partial_on_skip_checkbox",
             "clear_skipped_checkbox", "suppress_notifications_checkbox",
         ):
@@ -2220,6 +2233,15 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             if self.checkbox_settings.contains(key):
                 checkbox.setChecked(self.checkbox_settings.value(key, type=bool))
             checkbox.toggled.connect(partial(self.checkbox_settings.setValue, key))
+        if self.checkbox_settings.contains("stop_after_processing"):
+            self.stop_after_processing_spinbox.setValue(
+                self.checkbox_settings.value("stop_after_processing", type=int)
+            )
+        self.stop_after_processing_spinbox.valueChanged.connect(
+            partial(self.checkbox_settings.setValue, "stop_after_processing")
+        )
+        self.stop_after_processing_spinbox.setEnabled(self.stop_after_processing_checkbox.isChecked())
+        self.stop_after_processing_checkbox.toggled.connect(self.stop_after_processing_spinbox.setEnabled)
         self.media_report = QtWidgets.QWidget(self)
         report_layout = QtWidgets.QVBoxLayout(self.media_report)
         report_layout.setContentsMargins(0, 0, 0, 0)
@@ -2239,6 +2261,8 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         report_bottom_line.setFrameShape(QtWidgets.QFrame.HLine)
         report_layout.addWidget(report_bottom_line)
 
+        self.checkbox_separator = QtWidgets.QFrame(self)
+        self.checkbox_separator.setFrameShape(QtWidgets.QFrame.HLine)
         self.buttons_separator = QtWidgets.QFrame(self)
         self.buttons_separator.setFrameShape(QtWidgets.QFrame.HLine)
         self.runtime_label = QtWidgets.QLabel("Runtime: 00:00:00", self)
@@ -2246,11 +2270,12 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.setMinimumHeight(
             self.sizeHint().height() + self.remove_completed_checkbox.sizeHint().height()
             + self.stop_after_completion_checkbox.sizeHint().height()
+            + self.stop_after_processing_row.sizeHint().height() + 12
             + self.save_skipped_checkbox.sizeHint().height() + 12
             + self.save_partial_on_skip_checkbox.sizeHint().height() + 12
             + self.clear_skipped_checkbox.sizeHint().height() + 12
             + self.suppress_notifications_checkbox.sizeHint().height() + 12
-            + self.media_report.sizeHint().height() + 48
+            + self.media_report.sizeHint().height() + 62
         )
         self.setMinimumWidth(
             self.sizeHint().width() + self.runtime_label.width()
@@ -2354,8 +2379,16 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.suppress_notifications_checkbox.adjustSize()
         suppress_checkbox_y = cancel_button.y() - self.suppress_notifications_checkbox.height() - 12
         self.suppress_notifications_checkbox.move(bar.x(), suppress_checkbox_y)
+        stop_limit_y = suppress_checkbox_y - self.stop_after_processing_row.sizeHint().height() - 12
+        self.stop_after_processing_row.setGeometry(
+            bar.x(), stop_limit_y, bar.width(), self.stop_after_processing_row.sizeHint().height()
+        )
+        self.stop_after_completion_checkbox.adjustSize()
+        stop_checkbox_y = stop_limit_y - self.stop_after_completion_checkbox.height() - 12
+        self.stop_after_completion_checkbox.move(bar.x(), stop_checkbox_y)
+        self.checkbox_separator.setGeometry(bar.x(), stop_checkbox_y - 7, bar.width(), 2)
         self.clear_skipped_checkbox.adjustSize()
-        clear_checkbox_y = suppress_checkbox_y - self.clear_skipped_checkbox.height() - 12
+        clear_checkbox_y = self.checkbox_separator.y() - self.clear_skipped_checkbox.height() - 12
         self.clear_skipped_checkbox.move(bar.x(), clear_checkbox_y)
         self.save_partial_on_skip_checkbox.adjustSize()
         partial_checkbox_y = clear_checkbox_y - self.save_partial_on_skip_checkbox.height() - 12
@@ -2363,12 +2396,9 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.save_skipped_checkbox.adjustSize()
         save_checkbox_y = partial_checkbox_y - self.save_skipped_checkbox.height() - 12
         self.save_skipped_checkbox.move(bar.x(), save_checkbox_y)
-        self.stop_after_completion_checkbox.adjustSize()
-        stop_checkbox_y = save_checkbox_y - self.stop_after_completion_checkbox.height() - 12
-        self.stop_after_completion_checkbox.move(bar.x(), stop_checkbox_y)
         self.buttons_separator.setGeometry(bar.x(), cancel_button.y() - 7, bar.width(), 2)
         self.remove_completed_checkbox.adjustSize()
-        checkbox_y = stop_checkbox_y - self.remove_completed_checkbox.height() - 12
+        checkbox_y = save_checkbox_y - self.remove_completed_checkbox.height() - 12
         self.remove_completed_checkbox.move(bar.x(), checkbox_y)
         report_height = self.media_report.sizeHint().height()
         self.media_report.setGeometry(
