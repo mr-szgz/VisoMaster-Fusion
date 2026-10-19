@@ -1369,6 +1369,7 @@ def _make_batch_main_window(*widgets):
         },
         video_processor=video_processor,
         videoSeekSlider=_FakeSlider(),
+        timelineContainer=SimpleNamespace(thumbnail_track=MagicMock()),
         scene=SimpleNamespace(clear=MagicMock()),
         is_batch_processing=False,
         batchImageButton=MagicMock(
@@ -1657,6 +1658,15 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
     )
     main_window.selected_video_button = main_window.targetVideosList.itemWidget(0)
     main_window.video_processor.media_path = "E:/media/image_1.png"
+    main_window.video_processor.file_type = "image"
+    thumbnail_states = []
+    main_window.timelineContainer.thumbnail_track.request_thumbnails.side_effect = (
+        lambda: thumbnail_states.append((
+            main_window.video_processor.media_path,
+            main_window.video_processor.file_type,
+            main_window.video_processor.max_frame_number,
+        ))
+    )
     main_window.target_faces["original_face"].assigned_merged_embeddings = {"embed_1": {}}
     main_window.merged_embeddings["embed_1"] = SimpleNamespace(
         embedding_name="Alice", isChecked=lambda: False
@@ -1759,9 +1769,9 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
     )
 
     if image_fails:
-        main_window.video_processor.process_current_frame.side_effect = ValueError(
-            "Image processing failed"
-        )
+        main_window.video_processor.process_current_frame.side_effect = [
+            ValueError("Image processing failed"), None
+        ]
 
     video_actions_env.process_batch_images(main_window, process_all_faces=False)
 
@@ -1773,6 +1783,14 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
         ]
     )
     stopped_after_image = stop_after_completion and not image_fails
+    expected_thumbnail_states = [("E:/media/image_1.png", "image", 0)]
+    if not stopped_after_image:
+        expected_thumbnail_states.append(("E:/media/video_1.mp4", "video", 9))
+    expected_thumbnail_states.append(
+        (None, None, 0) if remove_completed and not image_fails
+        else ("E:/media/image_1.png", "image", 0)
+    )
+    assert thumbnail_states == expected_thumbnail_states
     assert progress_dialog.set_media_properties.call_args_list[0].args == (["Alice"], 1, 0)
     if not stopped_after_image:
         assert progress_dialog.set_media_properties.call_args_list[1].args == (["Alice"], 10, 24)
@@ -1845,6 +1863,18 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
         _FakeBatchMediaWidget("video", "E:/media/video_1.mp4"),
         _FakeBatchMediaWidget("video", "E:/media/video_2.mp4"),
     )
+    main_window.video_processor.media_path = "E:/media/original.mp4"
+    main_window.video_processor.file_type = "video"
+    main_window.video_processor.current_frame_number = 37
+    main_window.video_processor.fps = 60
+    thumbnail_states = []
+    main_window.timelineContainer.thumbnail_track.request_thumbnails.side_effect = (
+        lambda: thumbnail_states.append((
+            main_window.video_processor.media_path,
+            main_window.video_processor.max_frame_number,
+            main_window.video_processor.fps,
+        ))
+    )
 
     def _stop_processing():
         main_window.video_processor.processing = False
@@ -1875,10 +1905,12 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
     monkeypatch.setattr(
         video_actions_env.module, "get_video_rotation", lambda *_args: 0
     )
+    original_capture = _FakeCapture()
+    original_capture.get = lambda prop: {"frame_count": 100, "fps": 60}[prop]
     monkeypatch.setattr(
         video_actions_env.module.cv2,
         "VideoCapture",
-        lambda *_args, **_kwargs: _FakeCapture(),
+        lambda path: original_capture if path == "E:/media/original.mp4" else _FakeCapture(),
     )
     monkeypatch.setattr(
         video_actions_env.module.cv2,
@@ -1943,6 +1975,14 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
     )
 
     video_actions_env.process_batch_images(main_window, process_all_faces=False)
+
+    expected_thumbnail_states = [("E:/media/video_1.mp4", 9, 24)]
+    if skip:
+        expected_thumbnail_states.append(("E:/media/video_2.mp4", 9, 24))
+    expected_thumbnail_states.append(("E:/media/original.mp4", 99, 60))
+    assert thumbnail_states == expected_thumbnail_states
+    assert main_window.video_processor.fps == 60
+    assert main_window.videoSeekSlider.value_set == 37
 
     if skip:
         assert record_video.call_count == 2

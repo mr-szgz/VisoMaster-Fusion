@@ -505,7 +505,11 @@ class ThumbnailTrackWidget(QtWidgets.QWidget):
 
         vp = self.main_window.video_processor
         if vp.file_type != "video" or not vp.media_path or vp.max_frame_number <= 0:
+            if self.worker and self.worker.isRunning():
+                self.worker.cancel()
+                self.worker.wait()
             self.thumbnail_cache.clear()
+            self.expected_intervals.clear()
             self.current_media_path = None  # Reset tracker
             self.update()
             return
@@ -578,6 +582,12 @@ class ThumbnailTrackWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(int, QtGui.QImage)
     def on_thumbnail_ready(self, frame_num, q_image):
+        if (
+            self.sender() is not self.worker
+            or self.worker.media_path != self.main_window.video_processor.media_path
+            or frame_num not in self.expected_intervals
+        ):
+            return
         # Convert the thread-safe QImage back to a GUI-friendly QPixmap
         self.thumbnail_cache[frame_num] = QtGui.QPixmap.fromImage(q_image)
         # We received new data, request a repaint

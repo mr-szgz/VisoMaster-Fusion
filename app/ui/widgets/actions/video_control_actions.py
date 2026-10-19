@@ -3018,6 +3018,8 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                 main_window.video_processor.current_frame_number = 0
                 # --- End Minimal Media Load ---
 
+                main_window.timelineContainer.thumbnail_track.request_thumbnails()
+
                 if process_all_faces:
                     embedding_names = [embed.embedding_name for embed in saved_embeddings]
                 else:
@@ -3357,6 +3359,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     main_window.videoSeekSlider.setValue(original_frame_num)
                     main_window.videoSeekSlider.blockSignals(False)
                     main_window.video_processor.max_frame_number = original_max_frames
+                    main_window.video_processor.fps = new_capture.get(cv2.CAP_PROP_FPS)
                 else:
                     print(
                         f"[ERROR] Failed to re-open original media capture: {original_media_path}"
@@ -3383,6 +3386,8 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
             main_window.videoSeekSlider.setValue(0)
             main_window.videoSeekSlider.blockSignals(False)
             main_window.video_processor.max_frame_number = 0
+
+        main_window.timelineContainer.thumbnail_track.request_thumbnails()
 
 
 def toggle_live_sound(main_window: "MainWindow", toggle_value: bool):
