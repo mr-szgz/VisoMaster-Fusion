@@ -145,7 +145,7 @@ def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed):
                 assert dialog.isVisible()
                 assert dialog.windowTitle() == "Batch Saving Jobs..."
                 assert len(dialog.findChildren(QtWidgets.QFormLayout)) == 2
-                assert dialog.cancel_button.text() == "Close"
+                assert dialog.cancel_button.text() == "Done"
                 assert dialog.cancel_button.isEnabled()
                 assert not dialog.timer.isActive()
                 assert dialog.report_labels["Queued:"].text() == str(len(media))

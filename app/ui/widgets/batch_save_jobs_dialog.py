@@ -306,7 +306,7 @@ class BatchSaveJobsDialog(QtWidgets.QDialog):
                 self.progress_bar.setRange(0, 1)
                 self.progress_bar.setValue(1)
                 self.progress_bar.setFormat("100% - 0 / 0 jobs saved")
-        self.cancel_button.setText("Close")
+        self.cancel_button.setText("Done")
         self.cancel_button.setEnabled(True)
         self.control_loop.exec()
         self.dialog_settings.setValue("geometry", self.saveGeometry())
