@@ -2689,20 +2689,6 @@ def batch_save_jobs(main_window: "MainWindow"):
         if target_media.file_type in ("image", "video"):
             media_items.append(target_media)
 
-    num_images = sum(media.file_type == "image" for media in media_items)
-    num_videos = sum(media.file_type == "video" for media in media_items)
-    reply = QtWidgets.QMessageBox.question(
-        main_window,
-        "Confirm Batch Save Jobs",
-        f"Found {num_images} images and {num_videos} videos in the target list.\n\n"
-        "This will save a job for each item using the current face configuration.\n\n"
-        "Proceed with batch save jobs?",
-        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-        QtWidgets.QMessageBox.No,
-    )
-    if reply == QtWidgets.QMessageBox.No:
-        return
-
     dialog = BatchSaveJobsDialog(main_window, media_items)
     main_window.batch_save_jobs_dialog = dialog
     batch_button = main_window.batchSaveJobsButton

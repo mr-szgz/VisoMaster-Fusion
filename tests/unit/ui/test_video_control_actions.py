@@ -1384,12 +1384,11 @@ def _make_batch_main_window(*widgets):
     )
 
 
-@pytest.mark.parametrize("confirmed", [False, True])
 def test_batch_save_jobs_includes_images_and_videos_without_processing(
-    monkeypatch, video_actions_env, confirmed
+    monkeypatch, video_actions_env
 ):
     message_box = video_actions_env.module.QtWidgets.QMessageBox
-    question = MagicMock(return_value=message_box.Yes if confirmed else message_box.No)
+    question = MagicMock()
     monkeypatch.setattr(message_box, "question", question)
     dialog = MagicMock()
     factory = MagicMock(return_value=dialog)
@@ -1411,23 +1410,7 @@ def test_batch_save_jobs_includes_images_and_videos_without_processing(
     dialog.run.side_effect = reopen_active_dialog
     video_actions_env.module.batch_save_jobs(main_window)
 
-    question.assert_called_once_with(
-        main_window,
-        "Confirm Batch Save Jobs",
-        "Found 1 images and 1 videos in the target list.\n\n"
-        "This will save a job for each item using the current face configuration.\n\n"
-        "Proceed with batch save jobs?",
-        message_box.Yes | message_box.No,
-        message_box.No,
-    )
-    if not confirmed:
-        factory.assert_not_called()
-        assert main_window.batch_save_jobs_dialog is None
-        main_window.batchSaveJobsButton.setText.assert_not_called()
-        main_window.batchImageButton.setEnabled.assert_not_called()
-        main_window.batchallImageButton.setEnabled.assert_not_called()
-        assert vars(main_window.video_processor) == original_state
-        return
+    question.assert_not_called()
 
     factory.assert_called_once_with(main_window, [image, video])
     dialog.run.assert_called_once_with()

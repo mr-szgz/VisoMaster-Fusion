@@ -52,7 +52,9 @@ def test_batch_save_minimize_is_independent(platform):
         QtTest.QTest.qWait(100)
         assert not dialog.isMinimized()
         assert events == [True, False]
-        assert dialog.timer.isActive()
+        assert not dialog.timer.isActive()
+        assert dialog.start_button.isEnabled()
+        assert not dialog.pause_button.isEnabled()
         dialog.timer.stop()
         dialog.is_finished = True
         dialog.close()
@@ -70,8 +72,7 @@ def test_batch_save_minimize_is_independent(platform):
 
 
 @pytest.mark.parametrize("remove_completed", [False, True])
-@pytest.mark.parametrize("suppress_notifications", [False, True])
-def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed, suppress_notifications):
+def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed):
     script = textwrap.dedent('''
         import json
         from pathlib import Path
@@ -94,15 +95,14 @@ def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed, suppres
         app = QtWidgets.QApplication([])
         root = Path(sys.argv[1])
         remove_completed = sys.argv[2] == "True"
-        suppress_notifications = sys.argv[3] == "True"
-        for mode in ("complete", "stop", "limit_one", "limit_two", "limit_large", "limit_unchecked", "cancel", "cancel_before", "empty"):
+        for mode in ("complete", "stop", "limit_one", "limit_two", "limit_large", "limit_unchecked", "cancel", "cancel_before", "empty", "pause_resume", "pause_cancel", "stop_button", "pause_stop"):
             jobs = root / mode
             jobs.mkdir()
             existing = jobs / "sample.json"
             existing.write_text("existing")
             window = QtWidgets.QWidget()
             window.control = {"ClusterOutputBySourceToggle": True}
-            media = [SimpleNamespace(media_id=str(i), media_path="sample.png") for i in range(3)]
+            media = [SimpleNamespace(media_id=str(i), media_path="sample.png", file_type="image") for i in range(3)]
             if mode == "empty":
                 media = []
             window.targetVideosList = QtWidgets.QListWidget(window)
@@ -125,8 +125,6 @@ def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed, suppres
             dialog = BatchSaveJobsDialog(window, media)
             assert not dialog.stop_after_completion_checkbox.isChecked()
             assert not settings.contains("stop_after_completion_checkbox")
-            assert not dialog.suppress_notifications_checkbox.isChecked()
-            dialog.suppress_notifications_checkbox.setChecked(suppress_notifications)
             assert dialog.stop_after_processing_spinbox.value() == 100
             assert not dialog.stop_after_processing_spinbox.isEnabled()
             assert not dialog.stop_after_processing_checkbox.isChecked()
@@ -138,10 +136,35 @@ def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed, suppres
             dialog.stop_after_processing_checkbox.setChecked(limited)
             assert dialog.stop_after_processing_spinbox.isEnabled() == limited
             dialog.resize(700, 360)
-            reports = []
-            def inspect_report(report):
-                reports.append((report.windowTitle(), report.findChild(QtWidgets.QLabel).text()))
-                return QtWidgets.QDialog.Accepted
+            completed = []
+            review_timer = QtCore.QTimer()
+            def review_completion():
+                if not dialog.is_finished:
+                    return
+                review_timer.stop()
+                assert dialog.isVisible()
+                assert dialog.windowTitle() == "Batch Saving Jobs..."
+                assert len(dialog.findChildren(QtWidgets.QFormLayout)) == 2
+                assert dialog.cancel_button.text() == "Close"
+                assert dialog.cancel_button.isEnabled()
+                assert not dialog.timer.isActive()
+                assert dialog.report_labels["Queued:"].text() == str(len(media))
+                assert dialog.report_labels["Saved:"].text() == str(len(dialog.saved_names))
+                assert dialog.report_labels["Cancelled:"].text() == str(dialog.started_count - len(dialog.saved_names))
+                assert dialog.report_labels["Not started:"].text() == str(len(media) - dialog.started_count)
+                assert dialog.details.toPlainText() == "\\n".join(dialog.saved_names)
+                if dialog.cancel_requested:
+                    assert dialog.status_label.text() == "Cancelled."
+                elif len(dialog.saved_names) < len(media):
+                    assert dialog.status_label.text() == "Stopped."
+                else:
+                    assert dialog.status_label.text() == "Done."
+                    assert dialog.progress_bar.value() == dialog.progress_bar.maximum()
+                    assert "100%" in dialog.progress_bar.text()
+                completed.append(True)
+                dialog.cancel_button.click()
+            review_timer.timeout.connect(review_completion)
+            review_timer.start(10)
             encoder = json.JSONEncoder.iterencode
             resumed_after_cancel = []
             def interrupted_encoding(self, value):
@@ -150,16 +173,64 @@ def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed, suppres
                 yield "{"
                 resumed_after_cancel.append(True)
                 yield "}"
+            stopped_during_save = []
+            def stop_during_encoding(self, value):
+                def request_stop():
+                    assert list(jobs.glob("*.part"))
+                    assert not list(jobs.glob("sample_*.json"))
+                    assert dialog.stop_button.isEnabled()
+                    if mode == "pause_stop":
+                        dialog.pause_button.click()
+                        QtCore.QTimer.singleShot(50, dialog.stop_button.click)
+                    else:
+                        dialog.stop_button.click()
+                    stopped_during_save.append(True)
+                QtCore.QTimer.singleShot(0, request_stop)
+                QtCore.QThread.msleep(25)
+                yield from encoder(self, value)
             if mode == "stop":
                 dialog.stop_after_completion_checkbox.setChecked(True)
             if mode == "cancel_before":
                 QtCore.QTimer.singleShot(0, dialog.reject)
+            else:
+                def begin():
+                    assert not list(jobs.glob("sample_*.json"))
+                    manager._serialize_job_data.assert_not_called()
+                    assert dialog.start_button.isEnabled()
+                    assert not dialog.pause_button.isEnabled()
+                    assert not dialog.stop_button.isEnabled()
+                    assert not dialog.timer.isActive()
+                    assert f"Found {len(media)} images and 0 videos" in dialog.summary_label.text()
+                    dialog.start_button.click()
+                QtCore.QTimer.singleShot(0, begin)
+            pauses = []
+            if mode in ("pause_resume", "pause_cancel"):
+                def check_paused():
+                    assert len(dialog.saved_names) == 1
+                    assert len(list(jobs.glob("sample_*.json"))) == 1
+                    assert dialog.start_button.isEnabled()
+                    assert not dialog.pause_button.isEnabled()
+                    assert "Paused" in dialog.status_label.text()
+                    pauses.append(True)
+                    if mode == "pause_cancel":
+                        dialog.cancel_button.click()
+                    else:
+                        dialog.start_button.click()
+                        assert not dialog.start_button.isEnabled()
+                        assert dialog.pause_button.isEnabled()
+                def pause_after_first(value):
+                    if value == 1:
+                        dialog.pause_button.click()
+                        QtCore.QTimer.singleShot(50, check_paused)
+                dialog.progress_bar.valueChanged.connect(pause_after_first)
             with patch.object(actions, "job_manager_actions", manager, create=True), \
-                 patch.object(QtWidgets.QDialog, "exec", inspect_report), \
-                 patch.object(json.JSONEncoder, "iterencode", interrupted_encoding if mode == "cancel" else encoder):
+                 patch.object(json.JSONEncoder, "iterencode", interrupted_encoding if mode == "cancel" else stop_during_encoding if mode in ("stop_button", "pause_stop") else encoder):
                 dialog.run()
             saved = {path.name: json.loads(path.read_text()) for path in jobs.glob("sample_*.json")}
-            expected = {"complete": 3, "stop": 1, "limit_one": 1, "limit_two": 2, "limit_large": 3, "limit_unchecked": 3, "cancel": 0, "cancel_before": 0, "empty": 0}[mode]
+            expected = {"complete": 3, "stop": 1, "limit_one": 1, "limit_two": 2, "limit_large": 3, "limit_unchecked": 3, "cancel": 0, "cancel_before": 0, "empty": 0, "pause_resume": 3, "pause_cancel": 1, "stop_button": 1, "pause_stop": 1}[mode]
+            assert stopped_during_save == ([True] if mode in ("stop_button", "pause_stop") else [])
+            assert not dialog.stop_button.isEnabled()
+            assert pauses == ([True] if mode in ("pause_resume", "pause_cancel") else [])
             assert len(saved) == expected
             removed = expected if remove_completed else 0
             assert list(window.target_videos) == [item.media_id for item in media[removed:]]
@@ -171,25 +242,13 @@ def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed, suppres
                 window.placeholder_update_signal.emit.assert_called_once_with(window.targetVideosList, False)
             else:
                 window.placeholder_update_signal.emit.assert_not_called()
-            assert dialog.progress_bar.value() == expected
+            assert dialog.progress_bar.value() == (1 if mode == "empty" else expected)
             assert dialog.is_finished and not dialog.timer.isActive()
             assert not list(jobs.glob("*.part"))
             assert existing.read_text() == "existing"
             assert not resumed_after_cancel
-            assert len(reports) == int(not suppress_notifications)
-            if not suppress_notifications:
-                title, summary = reports[0]
-                assert f"Saved: {expected}" in summary
-                if mode == "cancel":
-                    assert "Cancelled: 1" in summary and "Not started: 2" in summary
-                    assert title.endswith("Cancelled")
-                elif mode in ("stop", "limit_one", "limit_two"):
-                    assert "Cancelled: 0" in summary and f"Not started: {3 - expected}" in summary
-                    assert title.endswith("Stopped")
-                elif mode == "cancel_before":
-                    assert "Not started: 3" in summary
-                else:
-                    assert title.endswith("Complete")
+            assert completed == [True]
+            assert not dialog.isVisible()
             if mode == "cancel_before":
                 manager._serialize_job_data.assert_not_called()
             if expected:
@@ -211,7 +270,6 @@ def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed, suppres
             reopened.show()
             app.processEvents()
             assert not reopened.stop_after_completion_checkbox.isChecked()
-            assert reopened.suppress_notifications_checkbox.isChecked() == suppress_notifications
             assert reopened.remove_completed_checkbox.isChecked() == remove_completed
             assert reopened.stop_after_processing_checkbox.isChecked() == limited
             assert reopened.stop_after_processing_spinbox.value() == limit
@@ -229,7 +287,7 @@ def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed, suppres
             app.processEvents()
     ''')
     result = subprocess.run(
-        [sys.executable, "-u", "-c", script, str(tmp_path), str(remove_completed), str(suppress_notifications)],
+        [sys.executable, "-u", "-c", script, str(tmp_path), str(remove_completed)],
         cwd=Path(__file__).resolve().parents[3],
         env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
         capture_output=True,
