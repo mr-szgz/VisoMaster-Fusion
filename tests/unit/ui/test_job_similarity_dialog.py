@@ -9,6 +9,125 @@ import textwrap
 import pytest
 
 
+def test_similarity_preferences_survive_restart(tmp_path):
+    script = textwrap.dedent("""
+        import json
+        from pathlib import Path
+        import sys
+        import time
+        from PySide6 import QtCore, QtWidgets, QtTest
+        from app.ui.widgets import job_similarity_dialog as similarity
+        from app.ui.widgets.job_list_widgets import JobDataRole
+
+        app = QtWidgets.QApplication([])
+        root = Path(sys.argv[1])
+        mode = sys.argv[2]
+        def isolated_settings(namespace, parent):
+            settings = QtCore.QSettings(str(root / "dialogs.ini"), QtCore.QSettings.IniFormat, parent)
+            settings.setFallbacksEnabled(False)
+            settings.beginGroup(namespace)
+            return settings
+        similarity.settings_group = isolated_settings
+        window = QtWidgets.QWidget()
+        window.project_root_path = root
+        window.jobQueueList = QtWidgets.QListWidget(window)
+        jobs_dir = root / "jobs"
+        jobs_dir.mkdir(exist_ok=True)
+        jobs = ["short", "long", "other"]
+        names = ["A/B", "Other", "a/b"]
+        durations = [30, 90, 100]
+        if mode == "restore":
+            jobs.append("new")
+            names.append("New embedding")
+            durations.append(90)
+        for index, (job, name, duration) in enumerate(zip(jobs, names, durations)):
+            item = QtWidgets.QListWidgetItem(job, window.jobQueueList)
+            item.setData(JobDataRole.JobNameRole, job)
+            item.setData(JobDataRole.EmbeddingNamesRole, [name])
+            item.setData(JobDataRole.MediaTypeRole, "video")
+            item.setData(JobDataRole.FrameCountRole, duration * 30)
+            item.setData(JobDataRole.FrameRateRole, 30.0)
+            data = {
+                "control": {"strength": index},
+                "target_faces_data": {job: {"parameters": {"SwapModelSelection": "Inswapper128"}}},
+                "markers": {}, "job_marker_pairs": [], "dropped_frames": [],
+                "swap_faces_enabled": True, "edit_faces_enabled": False,
+            }
+            (jobs_dir / f"{job}.json").write_text(json.dumps(data), encoding="utf-8")
+        dialog = similarity.JobSimilarityDialog(window, jobs)
+        assert dialog.dialog_settings.group() == "Dialogs/JobSimilarity"
+        if mode == "save":
+            assert dialog.cluster_limit.value() == 5
+            assert not dialog.minimum_length_checkbox.isChecked()
+            assert not dialog.maximum_length_checkbox.isChecked()
+            dialog.cluster_limit.setValue(2)
+            dialog.minimum_length.setText("00:01:00")
+            dialog.maximum_length.setText("00:02:00")
+            dialog.minimum_length_checkbox.setChecked(True)
+            dialog.maximum_length_checkbox.setChecked(True)
+            dialog.embedding_checkboxes["A/B"].setChecked(False)
+            dialog.embedding_checkboxes["a/b"].setChecked(False)
+            dialog.embedding_checkboxes["a/b"].setChecked(True)
+        else:
+            assert dialog.cluster_limit.value() == 2
+            assert dialog.minimum_length.text() == "00:01:00"
+            assert dialog.maximum_length.text() == "00:02:00"
+            assert dialog.minimum_length_checkbox.isChecked()
+            assert dialog.maximum_length_checkbox.isChecked()
+            assert dialog.minimum_length.isEnabled()
+            assert dialog.maximum_length.isEnabled()
+            assert not dialog.embedding_checkboxes["A/B"].isChecked()
+            assert dialog.embedding_checkboxes["a/b"].isChecked()
+            assert dialog.embedding_checkboxes["New embedding"].isChecked()
+            assert dialog.size() == QtCore.QSize(700, 720)
+            assert dialog.results.columnWidth(0) == 210
+            assert dialog.results.columnWidth(2) == 275
+        dialog.show()
+        deadline = time.monotonic() + 10
+        while (dialog.check_timer.isActive() or dialog.checking) and time.monotonic() < deadline:
+            app.processEvents()
+            QtTest.QTest.qWait(5)
+        assert not dialog.checking
+        assert dialog.worker.completed
+        assert dialog.worker.jobs == (["long", "other"] if mode == "save" else ["long", "other", "new"])
+        assert dialog.results.topLevelItemCount() == 2
+        assert not dialog.selected_jobs()
+        assert not dialog.send_button.isEnabled()
+        if mode == "save":
+            dialog.resize(700, 720)
+            dialog.results.setColumnWidth(0, 210)
+            dialog.results.setColumnWidth(2, 275)
+            app.processEvents()
+            dialog.close()
+            assert not dialog.isVisible()
+            assert not dialog.closed
+            assert dialog.dialog_settings.contains("geometry")
+            assert dialog.dialog_settings.contains("columns")
+            dialog.showNormal()
+            dialog.reject()
+            assert dialog.result() == QtWidgets.QDialog.Rejected
+        else:
+            dialog.items[1].setCheckState(0, QtCore.Qt.Checked)
+            dialog.items[2].setCheckState(0, QtCore.Qt.Checked)
+            dialog.send_button.click()
+            assert dialog.jobs_to_process == ["long", "other"]
+            assert dialog.result() == QtWidgets.QDialog.Accepted
+            assert not dialog.isVisible()
+        dialog.dialog_settings.sync()
+    """)
+    for mode in ("save", "restore"):
+        result = subprocess.run(
+            [sys.executable, "-u", "-c", script, str(tmp_path), mode],
+            cwd=Path(__file__).resolve().parents[3],
+            env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "Traceback" not in result.stderr, result.stderr
+
+
 @pytest.mark.parametrize("theme,scale", [("light", "1"), ("dark", "1.5")])
 def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
     script = textwrap.dedent("""
@@ -29,6 +148,12 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
         app.setFont(QtGui.QFont("Segoe UI", 10))
         app.setStyleSheet(qdarktheme.load_stylesheet(theme=sys.argv[2]))
         root = Path(sys.argv[1])
+        def isolated_settings(namespace, parent):
+            settings = QtCore.QSettings(str(root / "dialogs.ini"), QtCore.QSettings.IniFormat, parent)
+            settings.beginGroup(namespace)
+            settings.clear()
+            return settings
+        similarity.settings_group = isolated_settings
         jobs_dir = root / "jobs"
         jobs_dir.mkdir()
         window = QtWidgets.QMainWindow()

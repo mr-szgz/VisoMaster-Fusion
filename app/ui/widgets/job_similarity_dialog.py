@@ -1,4 +1,5 @@
 import json
+from functools import partial
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -6,6 +7,7 @@ from app.helpers.job_similarity import (
     add_job_to_cluster,
     saved_render_configuration,
 )
+from app.settings import settings_group
 from app.ui.widgets.job_list_widgets import JobDataRole
 
 
@@ -59,6 +61,7 @@ class JobSimilarityDialog(QtWidgets.QDialog):
         self.checking = False
         self.closed = False
         self.worker = None
+        self.dialog_settings = settings_group("Dialogs/JobSimilarity", self)
         self.setWindowTitle("Process Similar Jobs")
         self.setWindowFlag(QtCore.Qt.WindowMinimizeButtonHint, True)
         self.setWindowIcon(QtGui.QIcon(":/media/media/visomaster_small.png"))
@@ -71,6 +74,13 @@ class JobSimilarityDialog(QtWidgets.QDialog):
         self.cluster_limit = QtWidgets.QSpinBox(self)
         self.cluster_limit.setRange(1, 2147483647)
         self.cluster_limit.setValue(5)
+        if self.dialog_settings.contains("cluster_limit"):
+            self.cluster_limit.setValue(
+                self.dialog_settings.value("cluster_limit", type=int)
+            )
+        self.cluster_limit.valueChanged.connect(
+            partial(self.dialog_settings.setValue, "cluster_limit")
+        )
         self.cluster_limit.setEnabled(False)
         limit_label.setBuddy(self.cluster_limit)
         controls.addWidget(limit_label)
@@ -107,6 +117,10 @@ class JobSimilarityDialog(QtWidgets.QDialog):
         for index, name in enumerate(embedding_names):
             checkbox = QtWidgets.QCheckBox(name, self.embedding_filters)
             checkbox.setChecked(True)
+            key = f"embeddings/{name.encode('utf-8').hex()}"
+            if self.dialog_settings.contains(key):
+                checkbox.setChecked(self.dialog_settings.value(key, type=bool))
+            checkbox.toggled.connect(partial(self.dialog_settings.setValue, key))
             filter_grid.addWidget(checkbox, index // 3, index % 3)
             self.embedding_checkboxes[name] = checkbox
         layout.addWidget(self.embedding_filters)
@@ -138,6 +152,16 @@ class JobSimilarityDialog(QtWidgets.QDialog):
             length_layout.addWidget(editor)
         length_layout.addStretch()
         layout.addWidget(self.length_filters)
+        for name in ("minimum_length_checkbox", "maximum_length_checkbox"):
+            checkbox = getattr(self, name)
+            if self.dialog_settings.contains(name):
+                checkbox.setChecked(self.dialog_settings.value(name, type=bool))
+            checkbox.toggled.connect(partial(self.dialog_settings.setValue, name))
+        for name in ("minimum_length", "maximum_length"):
+            editor = getattr(self, name)
+            if self.dialog_settings.contains(name):
+                editor.setText(self.dialog_settings.value(name, type=str))
+            editor.textChanged.connect(partial(self.dialog_settings.setValue, name))
 
         self.results = QtWidgets.QTreeWidget(self)
         self.results.setHeaderLabels(
@@ -159,6 +183,8 @@ class JobSimilarityDialog(QtWidgets.QDialog):
         self.results.setColumnWidth(3, 180)
         self.results.setColumnWidth(4, 110)
         self.results.setColumnWidth(5, 120)
+        if self.dialog_settings.contains("columns"):
+            self.results.header().restoreState(self.dialog_settings.value("columns"))
         layout.addWidget(self.results, 1)
 
         buttons = QtWidgets.QHBoxLayout()
@@ -186,6 +212,8 @@ class JobSimilarityDialog(QtWidgets.QDialog):
         self.check_timer = QtCore.QTimer(self)
         self.check_timer.setSingleShot(True)
         self.check_timer.timeout.connect(self.check_jobs)
+        if self.dialog_settings.contains("geometry"):
+            self.restoreGeometry(self.dialog_settings.value("geometry"))
         self.check_timer.start(0)
 
     def check_jobs(self):
@@ -367,10 +395,14 @@ class JobSimilarityDialog(QtWidgets.QDialog):
 
     def closeEvent(self, event):
         event.ignore()
+        self.dialog_settings.setValue("geometry", self.saveGeometry())
+        self.dialog_settings.setValue("columns", self.results.header().saveState())
         self.hide()
 
     def done(self, result):
         self.closed = True
+        self.dialog_settings.setValue("geometry", self.saveGeometry())
+        self.dialog_settings.setValue("columns", self.results.header().saveState())
         self.check_timer.stop()
         if self.checking:
             self.worker.requestInterruption()
