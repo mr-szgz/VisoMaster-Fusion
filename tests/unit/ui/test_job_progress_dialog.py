@@ -205,17 +205,33 @@ def test_job_progress_lifecycle(tmp_path):
                      patch.object(actions.QMessageBox, "warning", side_effect=lambda *args: reports.append(args[1])), \
                      patch.object(QtWidgets.QDialog, "exec", capture_report), \
                      patch.object(actions.QMessageBox, "critical", side_effect=lambda *args: reports.append(args[1])):
-                    active = window.buttonProcessSelected if selected else window.buttonProcessAll
-                    other = window.buttonProcessAll if selected else window.buttonProcessSelected
+                    active = window.buttonProcessSelected if selected or similar else window.buttonProcessAll
+                    other = window.buttonProcessAll if selected or similar else window.buttonProcessSelected
                     if similar:
-                        active = window.buttonProcessSelectedSimilar if selected else window.buttonProcessAllSimilar
-                        actions.start_job_processor(window, ["B"] if selected else ["A", "B"], processing_button=active)
+                        from app.ui.widgets import job_similarity_dialog
+                        class ReviewDialog(QtWidgets.QDialog):
+                            def __init__(self, parent, jobs):
+                                super().__init__(parent)
+                                self.jobs_to_process = jobs
+                            def run(self):
+                                assert window.job_similarity_dialog is self
+                                assert window.job_processing_button is None
+                                return QtWidgets.QDialog.Accepted
+                        origin = window.buttonProcessSelectedSimilar if selected else window.buttonProcessAllSimilar
+                        with patch.object(job_similarity_dialog, "JobSimilarityDialog", ReviewDialog):
+                            origin.click()
+                        assert window.job_similarity_dialog is None
+                        assert window.job_similarity_button is None
+                        assert not origin.isChecked() and not origin.isCheckable()
                     else:
                         active.click()
                     worker = window.job_processor
                     dialog = window.job_progress_dialog
                     assert worker.jobs == (["B"] if selected else ["A", "B"])
                     assert active.isEnabled() and not other.isEnabled()
+                    assert window.job_processing_button is active
+                    assert not window.buttonProcessAllSimilar.isEnabled()
+                    assert not window.buttonProcessSelectedSimilar.isEnabled()
                     assert not window.loadJobButton.isEnabled()
                     assert not window.deleteJobButton.isEnabled()
                     assert window.buttonStopProcessing.isEnabled()
@@ -231,6 +247,10 @@ def test_job_progress_lifecycle(tmp_path):
                         assert active.text().endswith("(1/1)" if selected else "(1/2)")
                         dialog.minimize()
                         assert not dialog.isVisible() and active.isChecked()
+                        window.buttonProcessSelectedSimilar.click()
+                        window.buttonProcessAllSimilar.click()
+                        actions.prepare_similar_jobs(window, selected_only=True)
+                        assert not dialog.isVisible()
                         active.click()
                         assert window.job_processor is worker
                         assert window.job_progress_dialog is dialog
@@ -265,7 +285,7 @@ def test_job_progress_lifecycle(tmp_path):
                         assert expected_title in reports
                     assert worker.isFinished()
                     assert len(summaries) == 1
-                    assert summaries[0].startswith("Process Similar" if similar else "Process Selected" if selected else "Process All")
+                    assert summaries[0].startswith("Process Selected" if selected or similar else "Process All")
                     total = 1 if selected else 2
                     assert f"Queued: {total}" in summaries[0]
                     assert f"Completed: {total if outcome == 'success' else 0}" in summaries[0]

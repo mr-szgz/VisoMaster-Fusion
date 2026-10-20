@@ -555,7 +555,7 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
                             self.send_button.click()
                         else:
                             self.reject()
-                def process(parent, jobs_to_process, processing_button):
+                def process(parent, jobs_to_process):
                     assert parent is window
                     assert jobs_to_process == expected
                     assert not reviews[0].isVisible()
@@ -563,7 +563,8 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
                     assert window.job_similarity_dialog is None
                     assert window.job_similarity_button is None
                     assert actions.get_selected_jobs(window) == selected_input
-                    assert processing_button is (window.buttonProcessSelectedSimilar if selected_only else window.buttonProcessAllSimilar)
+                    assert not window.buttonProcessSelectedSimilar.isCheckable()
+                    assert not window.buttonProcessAllSimilar.isCheckable()
                 with patch.object(similarity, "JobSimilarityDialog", ReviewDialog), \
                      patch.object(actions, "start_job_processor", side_effect=process) as processor:
                     actions.prepare_similar_jobs(window, selected_only)
