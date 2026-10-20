@@ -91,3 +91,18 @@ def configuration_differences(reference: dict, candidate: dict) -> list[str]:
                 f"{key}: reference = {reference[key]}; job = {candidate[key]}"
             )
     return differences
+
+
+def add_job_to_cluster(clusters: list[dict], job: str, configuration: dict) -> None:
+    for cluster in clusters:
+        if not configuration_differences(cluster["configuration"], configuration):
+            cluster["jobs"].append(job)
+            return
+    clusters.append(
+        {
+            "id": len(clusters) + 1,
+            "configuration": configuration,
+            "representative_job": job,
+            "jobs": [job],
+        }
+    )

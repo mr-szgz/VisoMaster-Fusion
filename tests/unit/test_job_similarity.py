@@ -3,6 +3,7 @@ import copy
 import pytest
 
 from app.helpers.job_similarity import (
+    add_job_to_cluster,
     configuration_differences,
     saved_render_configuration,
 )
@@ -150,3 +151,26 @@ def test_multiple_faces_and_marker_parameters_ignore_face_ids_and_order(job):
     assert configuration_differences(
         saved_render_configuration(job), saved_render_configuration(candidate)
     )
+
+
+def test_jobs_join_existing_clusters_in_encounter_order(job):
+    clusters = []
+    for name, strength in [("A", 90), ("B", 80), ("C", 70), ("D", 80), ("E", 90)]:
+        data = copy.deepcopy(job)
+        data["target_faces_data"]["face"]["parameters"]["StrengthAmountSlider"] = (
+            strength
+        )
+        add_job_to_cluster(clusters, name, saved_render_configuration(data))
+    assert [cluster["id"] for cluster in clusters] == [1, 2, 3]
+    assert [cluster["jobs"] for cluster in clusters] == [["A", "E"], ["B", "D"], ["C"]]
+    assert [cluster["representative_job"] for cluster in clusters] == ["A", "B", "C"]
+
+
+def test_cluster_calculation_has_no_display_limit(job):
+    clusters = []
+    for index in range(12):
+        data = copy.deepcopy(job)
+        data["target_faces_data"]["face"]["parameters"]["StrengthAmountSlider"] = index
+        add_job_to_cluster(clusters, str(index), saved_render_configuration(data))
+    assert len(clusters) == 12
+    assert sum(len(cluster["jobs"]) for cluster in clusters) == 12
