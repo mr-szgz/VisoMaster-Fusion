@@ -43,6 +43,8 @@ def test_smart_scan_report_and_cleanup(tmp_path, theme, scale):
         window.project_root_path = root
         window.job_progress_dialog = None
         window.job_processing_button = None
+        window.job_similarity_dialog = None
+        window.job_similarity_button = None
         actions.connect_job_manager_signals(window)
         with patch.object(actions, "check_jobs_smart") as check_jobs:
             window.smartJobListButton.click()

@@ -123,6 +123,8 @@ def test_job_progress_lifecycle(tmp_path):
                 window.job_processor = None
                 window.job_progress_dialog = None
                 window.job_processing_button = None
+                window.job_similarity_dialog = None
+                window.job_similarity_button = None
                 window.batch_progress_dialog = object()
                 batch_dialog = window.batch_progress_dialog
                 window.is_batch_processing = False

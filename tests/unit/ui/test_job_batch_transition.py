@@ -38,6 +38,8 @@ def test_job_transition_and_final_report(tmp_path):
             window.job_marker_pairs = []
             window.job_progress_dialog = None
             window.job_processing_button = None
+            window.job_similarity_dialog = None
+            window.job_similarity_button = None
             for name in ("buttonProcessAll", "buttonProcessSelected", "buttonProcessSelectedSimilar", "buttonProcessAllSimilar", "buttonStopProcessing", "loadJobButton", "deleteJobButton", "smartJobListButton"):
                 setattr(window, name, QtWidgets.QPushButton(name, window))
             items = {}
@@ -185,6 +187,8 @@ def test_interruption_waits_for_ui_handoffs_before_restoring(tmp_path):
                 window.job_marker_pairs = []
                 window.job_progress_dialog = None
                 window.job_processing_button = None
+                window.job_similarity_dialog = None
+                window.job_similarity_button = None
                 for name in ("buttonProcessAll", "buttonProcessSelected", "buttonProcessSelectedSimilar", "buttonProcessAllSimilar", "buttonStopProcessing",
                              "loadJobButton", "deleteJobButton", "smartJobListButton", "buttonMediaRecord"):
                     setattr(window, name, QtWidgets.QPushButton(name, window))
@@ -429,6 +433,8 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
             window.job_marker_pairs = []
             window.job_progress_dialog = None
             window.job_processing_button = None
+            window.job_similarity_dialog = None
+            window.job_similarity_button = None
             window.is_batch_processing = False
             window.control = {"OutputMediaFolder": str(root), "KeepControlsToggle": True,
                               "ConfirmBeforeStoppingRecordingToggle": True}

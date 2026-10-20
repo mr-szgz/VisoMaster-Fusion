@@ -1385,7 +1385,8 @@ def _update_process_all_button_state(main_window: "MainWindow", job_count: int) 
         else "Process every saved job in the queue"
     )
     button.setEnabled(
-        main_window.job_processing_button is button if active else job_count > 0
+        main_window.job_processing_button is button if active else
+        job_count > 0 and main_window.job_similarity_dialog is None
     )
 
 
@@ -1395,7 +1396,8 @@ def update_job_manager_buttons(main_window: "MainWindow"):
     selected_count = len(job_list.selectedItems()) if job_list else 0
     job_count = job_list.count() if job_list else 0
     running = main_window.job_progress_dialog is not None
-    main_window.smartJobListButton.setEnabled(not running)
+    reviewing = main_window.job_similarity_dialog is not None
+    main_window.smartJobListButton.setEnabled(not running and not reviewing)
     for button, label, count, tooltip in (
         (main_window.buttonProcessSelected, f"Process ({selected_count})", selected_count,
          "Process the selected jobs"),
@@ -1407,8 +1409,10 @@ def update_job_manager_buttons(main_window: "MainWindow"):
         active = running and main_window.job_processing_button is button
         if not active:
             button.setText(label)
-        button.setEnabled(active if running else count > 0)
-        button.setToolTip("Click to open the job processing dialog" if active else tooltip)
+        review_button = reviewing and main_window.job_similarity_button is button
+        button.setEnabled(active if running else review_button if reviewing else count > 0)
+        button.setToolTip("Click to open the job processing dialog" if active else
+                          "Click to open the similar jobs dialog" if review_button else tooltip)
 
     enable_on_multi_selection = selected_count > 0
     enable_on_single_selection = selected_count == 1
@@ -1419,10 +1423,10 @@ def update_job_manager_buttons(main_window: "MainWindow"):
     )
     if hasattr(main_window, "loadJobButton"):
         main_window.loadJobButton.setEnabled(
-            enable_on_single_selection and not running
+            enable_on_single_selection and not running and not reviewing
         )  # Only allow loading one job
     if hasattr(main_window, "deleteJobButton"):
-        main_window.deleteJobButton.setEnabled(enable_on_multi_selection and not running)
+        main_window.deleteJobButton.setEnabled(enable_on_multi_selection and not running and not reviewing)
 
     _update_process_all_button_state(main_window, job_count)
 
@@ -1499,6 +1503,8 @@ def setup_job_manager_ui(main_window: "MainWindow"):
     main_window.job_processor = None
     main_window.job_progress_dialog = None
     main_window.job_processing_button = None
+    main_window.job_similarity_dialog = None
+    main_window.job_similarity_button = None
     refresh_job_list(main_window)
     update_job_manager_buttons(main_window)
 
@@ -1732,6 +1738,12 @@ def connect_job_manager_signals(main_window: "MainWindow"):
 def prepare_similar_jobs(main_window: "MainWindow", selected_only: bool):
     from app.ui.widgets.job_similarity_dialog import JobSimilarityDialog
 
+    if main_window.job_similarity_dialog is not None:
+        main_window.job_similarity_button.setChecked(True)
+        main_window.job_similarity_dialog.showNormal()
+        main_window.job_similarity_dialog.raise_()
+        main_window.job_similarity_dialog.activateWindow()
+        return
     if main_window.job_progress_dialog is not None:
         main_window.job_processing_button.setChecked(True)
         main_window.job_progress_dialog.showNormal()
@@ -1745,11 +1757,21 @@ def prepare_similar_jobs(main_window: "MainWindow", selected_only: bool):
         for index in range(main_window.jobQueueList.count())
     ]
     dialog = JobSimilarityDialog(main_window, jobs)
-    result = dialog.exec()
+    button = main_window.buttonProcessSelectedSimilar if selected_only else main_window.buttonProcessAllSimilar
+    main_window.job_similarity_dialog = dialog
+    main_window.job_similarity_button = button
+    button.setCheckable(True)
+    button.setChecked(True)
+    update_job_manager_buttons(main_window)
+    result = dialog.run()
     jobs_to_process = dialog.jobs_to_process
+    main_window.job_similarity_dialog = None
+    main_window.job_similarity_button = None
+    button.setChecked(False)
+    button.setCheckable(False)
     dialog.deleteLater()
+    update_job_manager_buttons(main_window)
     if result == QtWidgets.QDialog.Accepted:
-        button = main_window.buttonProcessSelectedSimilar if selected_only else main_window.buttonProcessAllSimilar
         start_job_processor(main_window, jobs_to_process, processing_button=button)
 
 

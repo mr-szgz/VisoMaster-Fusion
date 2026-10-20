@@ -497,6 +497,8 @@ def _mock_mw(project_root: Path) -> MagicMock:
     mw.project_root_path = project_root
     mw.job_progress_dialog = None
     mw.job_processing_button = None
+    mw.job_similarity_dialog = None
+    mw.job_similarity_button = None
     return mw
 
 
