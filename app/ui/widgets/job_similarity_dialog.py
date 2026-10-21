@@ -1,5 +1,6 @@
 import json
 from functools import partial
+from threading import Event
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -20,9 +21,12 @@ class JobSimilarityWorker(QtCore.QThread):
         self.jobs = jobs
         self.clusters = []
         self.completed = False
+        self.resume_event = Event()
+        self.resume_event.set()
 
     def run(self):
         for checked_count, job in enumerate(self.jobs, 1):
+            self.resume_event.wait()
             if self.isInterruptionRequested():
                 return
             with (self.jobs_dir / f"{job}.json").open(encoding="utf-8") as source:
@@ -95,22 +99,44 @@ class JobSimilarityDialog(QtWidgets.QDialog):
             "Select clusters to send to the job processor.", self
         )
         layout.addWidget(description)
-        self.status_label = QtWidgets.QLabel("Reading selected jobs…", self)
+        self.status_label = QtWidgets.QLabel("Click Start to read jobs.", self)
         self.status_label.setTextFormat(QtCore.Qt.PlainText)
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
         self.progress_bar = QtWidgets.QProgressBar(self)
+        self.progress_bar.setValue(0)
         layout.addWidget(self.progress_bar)
         self.metrics_label = QtWidgets.QLabel(self)
         self.metrics_label.setWordWrap(True)
         layout.addWidget(self.metrics_label)
+
+        jobs_limit_layout = QtWidgets.QHBoxLayout()
+        jobs_limit_label = QtWidgets.QLabel("Jobs limit:", self)
+        self.jobs_limit = QtWidgets.QSpinBox(self)
+        self.jobs_limit.setRange(-2147483648, 2147483647)
+        self.jobs_limit.setValue(-1)
+        self.jobs_limit.setToolTip(
+            "Read only the first N jobs before filtering. Zero or negative means no limit. Start a new run to apply."
+        )
+        if self.dialog_settings.contains("jobs_limit"):
+            self.jobs_limit.setValue(
+                self.dialog_settings.value("jobs_limit", type=int)
+            )
+        self.jobs_limit.valueChanged.connect(
+            partial(self.dialog_settings.setValue, "jobs_limit")
+        )
+        jobs_limit_label.setBuddy(self.jobs_limit)
+        jobs_limit_layout.addWidget(jobs_limit_label)
+        jobs_limit_layout.addWidget(self.jobs_limit)
+        jobs_limit_layout.addStretch()
+        layout.addLayout(jobs_limit_layout)
 
         self.embedding_filters = QtWidgets.QGroupBox("Embeddings", self)
         self.embedding_filters.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed
         )
         self.embedding_filters.setToolTip(
-            "Include jobs using any checked embedding. Click Rerun to apply."
+            "Include jobs using any checked embedding. Start a new run to apply."
         )
         filter_grid = QtWidgets.QGridLayout(self.embedding_filters)
         filter_grid.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
@@ -149,7 +175,7 @@ class JobSimilarityDialog(QtWidgets.QDialog):
             editor.setFixedWidth(90)
             editor.setEnabled(False)
             editor.setToolTip(
-                "Job length in HH:MM:SS. Type six digits; colons are inserted automatically. Click Rerun to apply."
+                "Job length in HH:MM:SS. Type six digits; colons are inserted automatically. Start a new run to apply."
             )
             checkbox.toggled.connect(editor.setEnabled)
             length_layout.addWidget(checkbox)
@@ -192,16 +218,16 @@ class JobSimilarityDialog(QtWidgets.QDialog):
         layout.addWidget(self.results, 1)
 
         buttons = QtWidgets.QHBoxLayout()
-        self.rerun_button = QtWidgets.QPushButton("Rerun", self)
+        self.rerun_button = QtWidgets.QPushButton("Start", self)
         self.rerun_button.setAutoDefault(False)
-        self.rerun_button.setEnabled(False)
-        self.rerun_button.clicked.connect(self.check_jobs)
+        self.rerun_button.clicked.connect(self.toggle_run)
         buttons.addWidget(self.rerun_button)
         buttons.addStretch()
-        self.cancel_button = QtWidgets.QPushButton("Cancel", self)
-        self.cancel_button.setAutoDefault(False)
-        self.cancel_button.clicked.connect(self.reject)
-        buttons.addWidget(self.cancel_button)
+        self.stop_button = QtWidgets.QPushButton("Stop", self)
+        self.stop_button.setAutoDefault(False)
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(self.stop_run)
+        buttons.addWidget(self.stop_button)
         self.send_button = QtWidgets.QPushButton("Send", self)
         self.send_button.setEnabled(False)
         self.send_button.setToolTip(
@@ -213,15 +239,29 @@ class JobSimilarityDialog(QtWidgets.QDialog):
 
         self.results.itemChanged.connect(self.selection_changed)
         self.cluster_limit.valueChanged.connect(self.show_clusters)
-        self.check_timer = QtCore.QTimer(self)
-        self.check_timer.setSingleShot(True)
-        self.check_timer.timeout.connect(self.check_jobs)
         if self.dialog_settings.contains("geometry"):
             self.restoreGeometry(self.dialog_settings.value("geometry"))
-        self.check_timer.start(0)
+
+    def toggle_run(self):
+        if not self.checking:
+            self.check_jobs()
+        elif self.worker.resume_event.is_set():
+            self.worker.resume_event.clear()
+            self.rerun_button.setText("Resume")
+            self.status_label.setText("Paused after the current job.")
+        else:
+            self.worker.resume_event.set()
+            self.rerun_button.setText("Pause")
+            self.status_label.setText("Reading jobs…")
+
+    def stop_run(self):
+        self.worker.requestInterruption()
+        self.worker.resume_event.set()
+        self.stop_button.setEnabled(False)
+        self.rerun_button.setEnabled(False)
+        self.status_label.setText("Stopping after the current job…")
 
     def check_jobs(self):
-        self.check_timer.stop()
         if self.worker is not None:
             self.worker.deleteLater()
         selected_embeddings = {
@@ -249,9 +289,12 @@ class JobSimilarityDialog(QtWidgets.QDialog):
             if self.maximum_length_checkbox.isChecked()
             else None
         )
+        jobs = self.jobs
+        if self.jobs_limit.value() > 0:
+            jobs = jobs[: self.jobs_limit.value()]
         filtered_jobs = [
             job
-            for job in self.jobs
+            for job in jobs
             if (
                 not self.job_details[job][0]
                 or selected_embeddings.intersection(self.job_details[job][0])
@@ -268,8 +311,11 @@ class JobSimilarityDialog(QtWidgets.QDialog):
         self.status_label.setText("Reading jobs…")
         self.results.setEnabled(False)
         self.embedding_filters.setEnabled(False)
+        self.jobs_limit.setEnabled(False)
         self.length_filters.setEnabled(False)
-        self.rerun_button.setEnabled(False)
+        self.rerun_button.setText("Pause")
+        self.rerun_button.setToolTip("Pause the current run.")
+        self.stop_button.setEnabled(True)
         self.cluster_limit.setEnabled(False)
         self.send_button.setEnabled(False)
         self.progress_bar.setRange(0, max(1, len(filtered_jobs)))
@@ -285,14 +331,19 @@ class JobSimilarityDialog(QtWidgets.QDialog):
         if self.closed:
             return
         self.checking = False
-        if self.worker.completed:
-            self.clusters = self.worker.clusters
-            self.results.setEnabled(True)
-            self.embedding_filters.setEnabled(True)
-            self.length_filters.setEnabled(True)
-            self.rerun_button.setEnabled(True)
-            self.cluster_limit.setEnabled(True)
-            self.show_clusters()
+        self.clusters = self.worker.clusters
+        self.results.setEnabled(True)
+        self.embedding_filters.setEnabled(True)
+        self.jobs_limit.setEnabled(True)
+        self.length_filters.setEnabled(True)
+        self.rerun_button.setEnabled(True)
+        self.rerun_button.setText("Done" if self.worker.completed else "Start")
+        self.rerun_button.setToolTip("Start a new run with the current filters.")
+        self.stop_button.setEnabled(False)
+        self.cluster_limit.setEnabled(True)
+        self.show_clusters()
+        if not self.worker.completed:
+            self.status_label.setText("Stopped. Showing jobs checked so far.")
 
     def show_clusters(self):
         expanded_ids = {
@@ -411,8 +462,8 @@ class JobSimilarityDialog(QtWidgets.QDialog):
         self.closed = True
         self.dialog_settings.setValue("geometry", self.saveGeometry())
         self.dialog_settings.setValue("columns", self.results.header().saveState())
-        self.check_timer.stop()
         if self.checking:
             self.worker.requestInterruption()
+            self.worker.resume_event.set()
             self.worker.wait()
         super().done(result)

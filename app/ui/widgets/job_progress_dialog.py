@@ -17,6 +17,7 @@ class JobProgressDialog(QtWidgets.QDialog):
     def __init__(self, parent, job_items):
         super().__init__(parent)
         self.job_items = job_items
+        self.is_finished = False
         self.total_jobs = len(job_items)
         self.completed_job_names = set()
         self.skipped_job_names = set()
@@ -65,6 +66,28 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.eta_label = QtWidgets.QLabel("ETA: --:--:--", self)
         report.addWidget(self.eta_label, row, 2)
         layout.addLayout(report)
+        metrics = QtWidgets.QFormLayout()
+        for field in ("Queued:", "Completed:", "Failed:", "Skipped:", "Stopped:", "Cancelled:", "Not started:"):
+            label = QtWidgets.QLabel(field, self)
+            value = QtWidgets.QLabel("0", self)
+            value.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+            metrics.addRow(label, value)
+            self.report_labels[field] = (label, value)
+        self.report_labels["Queued:"][1].setText(str(self.total_jobs))
+        layout.addLayout(metrics)
+        self.detail_text = QtWidgets.QPlainTextEdit(self)
+        self.detail_text.setReadOnly(True)
+        self.detail_text.hide()
+        layout.addWidget(self.detail_text)
+        self.details_button = QtWidgets.QPushButton("Show Details…", self)
+        self.details_button.setAutoDefault(False)
+        self.details_button.setCheckable(True)
+        self.details_button.toggled.connect(self.detail_text.setVisible)
+        self.details_button.toggled.connect(
+            lambda checked: self.details_button.setText("Hide Details…" if checked else "Show Details…")
+        )
+        self.details_button.hide()
+        layout.addWidget(self.details_button)
         properties_separator = QtWidgets.QFrame(self)
         properties_separator.setFrameShape(QtWidgets.QFrame.HLine)
         properties_separator.setFrameShadow(QtWidgets.QFrame.Sunken)
@@ -94,7 +117,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         layout.addWidget(self.stop_after_processing_row)
         self.suppress_notifications_checkbox = QtWidgets.QCheckBox("Suppress notifications", self)
         self.suppress_notifications_checkbox.setObjectName("suppressBatchNotificationsCheckbox")
-        self.suppress_notifications_checkbox.setToolTip("Mute job message alerts, toast notifications, and the result popup")
+        self.suppress_notifications_checkbox.setToolTip("Mute job message alerts and toast notifications")
         layout.addWidget(self.suppress_notifications_checkbox)
         self.dialog_settings = settings_group("Dialogs/JobProcessing", self)
         self.dialog_settings.remove("stop_after_completion_checkbox")
@@ -277,22 +300,30 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.hide()
 
     def reject(self):
-        self.minimize()
+        if self.is_finished:
+            super().reject()
+        else:
+            self.minimize()
 
     def closeEvent(self, event):
-        event.ignore()
-        self.minimize()
+        if self.is_finished:
+            super().closeEvent(event)
+        else:
+            event.ignore()
+            self.minimize()
 
     def finish(self):
         self.setObjectName("")
         self.dialog_settings.setValue("geometry", self.saveGeometry())
         self.runtime_timer.stop()
         self.update_runtime()
-        self.hide()
+        self.processing_rate_clock.invalidate()
+        self.stopping()
+        self.save_partial_on_skip_checkbox.setEnabled(False)
+        self.suppress_notifications_checkbox.setEnabled(False)
+        self.status_label.setText("Job processing finished. Restoring workspace…")
 
     def show_result(self, processor, command):
-        if self.suppress_notifications_checkbox.isChecked():
-            return
         unfinished = self.started_job_names - self.completed_job_names - self.skipped_job_names
         ended_early = processor.batch_cancelled or processor.batch_stopped
         failed = unfinished.intersection(self.job_errors) if ended_early else unfinished
@@ -309,24 +340,21 @@ class JobProgressDialog(QtWidgets.QDialog):
             title = "Job Processing Complete"
         else:
             title = "Job Processing Failed"
-        report = QtWidgets.QDialog(self.parentWidget())
-        report.setWindowTitle(title)
-        report.setSizeGripEnabled(True)
-        layout = QtWidgets.QVBoxLayout(report)
-        summary = QtWidgets.QLabel(report)
-        summary.setTextFormat(QtCore.Qt.PlainText)
-        summary.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-        summary.setText(
-            f"{command}\n\n"
-            f"Queued: {len(processor.jobs)}\n"
-            f"Completed: {len(self.completed_job_names)}\n"
-            f"Failed: {len(failed)}\n"
-            f"Skipped: {len(processor.skipped_jobs)}\n"
-            f"Stopped: {stopped}\n"
-            f"Cancelled: {cancelled}\n"
-            f"Not started: {not_started}\n\n"
-            f"{self.runtime_label.text()}"
-        )
+        self.setWindowTitle(title)
+        self.status_label.setText(f"{command}: {title}. Workspace restoration finished.")
+        values = {
+            "Queued:": len(processor.jobs),
+            "Completed:": len(self.completed_job_names),
+            "Failed:": len(failed),
+            "Skipped:": len(processor.skipped_jobs),
+            "Stopped:": stopped,
+            "Cancelled:": cancelled,
+            "Not started:": not_started,
+        }
+        for field, value in values.items():
+            self.report_labels[field][1].setText(str(value))
+        self.progress_bar.setRange(0, len(processor.jobs))
+        self.progress_bar.setValue(len(processor.jobs) - not_started)
         details = ["Queued jobs:", *processor.jobs]
         if self.completed_job_names:
             details.extend(["", "Completed jobs:", *sorted(self.completed_job_names),
@@ -341,23 +369,15 @@ class JobProgressDialog(QtWidgets.QDialog):
             details.extend(["", "Stopped jobs:", *sorted(interrupted)])
         if cancelled:
             details.extend(["", "Cancelled jobs:", *sorted(interrupted)])
-        layout.addWidget(summary)
-        detail_text = QtWidgets.QPlainTextEdit(report)
-        detail_text.setReadOnly(True)
-        detail_text.setPlainText("\n".join(details))
-        detail_text.hide()
-        layout.addWidget(detail_text, 1)
-        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok, report)
-        buttons.accepted.connect(report.accept)
-        details_button = buttons.addButton("Show Details…", QtWidgets.QDialogButtonBox.ActionRole)
-        details_button.setCheckable(True)
-        details_button.toggled.connect(detail_text.setVisible)
-        details_button.toggled.connect(
-            lambda checked: details_button.setText("Hide Details…" if checked else "Show Details…")
-        )
-        layout.addWidget(buttons)
-        for button in report.findChildren(QtWidgets.QPushButton):
-            button.setMinimumWidth(button.fontMetrics().horizontalAdvance(button.text()) + 48)
-        report.resize(report.sizeHint().width() * 2, report.sizeHint().height())
-        report.exec()
-        report.deleteLater()
+        self.detail_text.setPlainText("\n".join(details))
+        self.details_button.show()
+        self.is_finished = True
+        self.cancel_button.clicked.disconnect(self.cancelRequested.emit)
+        self.cancel_button.clicked.connect(self.accept)
+        self.cancel_button.setText("Close")
+        self.cancel_button.setToolTip("Close the job processing report")
+        self.cancel_button.setEnabled(True)
+        self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()

@@ -22,6 +22,113 @@ def _stub(name: str) -> MagicMock:
     return module
 
 
+@pytest.mark.qt
+@pytest.mark.parametrize("action", ["expire", "continue", "stop", "cancel", "disable", "skip"])
+@pytest.mark.parametrize("rule", ["longer", "shorter", "both_shorter", "both_longer"])
+def test_auto_skip_countdown(progress_dialog_module, qapp, monkeypatch, action, rule):
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2000)
+    assert dialog.auto_skip_delay_spinbox.value() == 5
+    dialog.auto_skip_checkbox.setChecked(rule != "shorter")
+    dialog.auto_skip_time_edit.setTime(QtCore.QTime(0, 1, 0))
+    dialog.auto_skip_shorter_checkbox.setChecked(rule != "longer")
+    dialog.auto_skip_shorter_time_edit.setTime(QtCore.QTime(0, 0, 30))
+    dialog.auto_skip_delay_spinbox.setValue(1)
+    dialog.show()
+    confirmed = MagicMock()
+    dialog.skipConfirmed.connect(confirmed)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *args: QtWidgets.QMessageBox.Yes)
+
+    def during_countdown():
+        assert dialog.skip_button.text() == "Skipping in 1.."
+        assert dialog.continue_processing_button.isVisible()
+        assert dialog.runtime_label.geometry().right() < dialog.continue_processing_button.x()
+        assert dialog.continue_processing_button.geometry().right() < dialog.skip_button.x()
+        if action == "continue":
+            dialog.continue_processing_button.click()
+        elif action == "stop":
+            dialog.stop_button.click()
+        elif action == "cancel":
+            dialog._confirmed_cancelled = True
+        elif action == "disable":
+            if rule in ("shorter", "both_shorter"):
+                dialog.auto_skip_shorter_checkbox.setChecked(False)
+            else:
+                dialog.auto_skip_checkbox.setChecked(False)
+        elif action == "skip":
+            dialog.skip_button.click()
+
+    QtCore.QTimer.singleShot(0, during_countdown)
+    dialog.wait_for_auto_skip(29.99 if rule in ("shorter", "both_shorter") else 60.01)
+    assert dialog.skip_requested == (action in ("expire", "skip"))
+    assert confirmed.call_count == int(action in ("expire", "skip"))
+    assert dialog.continue_processing_button.isHidden()
+    assert dialog.skip_button.text() == "Skip"
+    assert not dialog.auto_skip_pending
+    dialog.close_without_confirmation()
+
+
+@pytest.mark.qt
+@pytest.mark.parametrize("enabled,shorter_enabled,duration", [
+    (False, False, 61), (True, False, 59), (True, False, 60),
+    (False, False, 29), (False, True, 30), (False, True, 31),
+    (True, True, 30), (True, True, 45), (True, True, 60),
+])
+def test_auto_skip_duration_boundary(progress_dialog_module, qapp, enabled, shorter_enabled, duration):
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2000)
+    dialog.auto_skip_checkbox.setChecked(enabled)
+    dialog.auto_skip_time_edit.setTime(QtCore.QTime(0, 1, 0))
+    dialog.auto_skip_shorter_checkbox.setChecked(shorter_enabled)
+    dialog.auto_skip_shorter_time_edit.setTime(QtCore.QTime(0, 0, 30))
+    dialog.wait_for_auto_skip(duration)
+    assert not dialog.skip_requested
+    assert dialog.continue_processing_button.isHidden()
+    dialog.close_without_confirmation()
+
+
+@pytest.mark.qt
+def test_auto_skip_settings_persist(progress_dialog_module, qapp):
+    settings = progress_dialog_module.settings_group("Dialogs/BatchProcessing", qapp)
+    settings.setValue("auto_skip_checkbox", True)
+    settings.setValue("auto_skip_shorter_checkbox", True)
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2000)
+    assert not dialog.auto_skip_checkbox.isChecked()
+    assert not dialog.auto_skip_shorter_checkbox.isChecked()
+    assert dialog.auto_skip_time_edit.time() == QtCore.QTime(0, 1, 30)
+    assert dialog.auto_skip_shorter_time_edit.time() == QtCore.QTime(0, 0, 5)
+    dialog.auto_skip_checkbox.setChecked(True)
+    dialog.auto_skip_time_edit.setTime(QtCore.QTime(1, 2, 3))
+    dialog.auto_skip_shorter_checkbox.setChecked(True)
+    dialog.auto_skip_shorter_time_edit.setTime(QtCore.QTime(0, 2, 3))
+    dialog.auto_skip_delay_spinbox.setValue(12)
+    assert not settings.contains("auto_skip_checkbox")
+    assert not settings.contains("auto_skip_shorter_checkbox")
+    dialog.close_without_confirmation()
+    reopened = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2000)
+    assert not reopened.auto_skip_checkbox.isChecked()
+    assert reopened.auto_skip_time_edit.time() == QtCore.QTime(1, 2, 3)
+    assert not reopened.auto_skip_shorter_checkbox.isChecked()
+    assert reopened.auto_skip_shorter_time_edit.time() == QtCore.QTime(0, 2, 3)
+    assert reopened.auto_skip_delay_spinbox.value() == 12
+    reopened.show()
+    assert reopened.suppress_notifications_checkbox.geometry().bottom() < reopened.auto_skip_row.y()
+    assert reopened.auto_skip_row.geometry().bottom() < reopened.auto_skip_shorter_row.y()
+    assert reopened.auto_skip_shorter_row.geometry().bottom() < reopened.auto_skip_delay_row.y()
+    assert reopened.auto_skip_delay_row.geometry().bottom() < reopened.buttons_separator.y()
+    reopened.close_without_confirmation()
+
+
+@pytest.mark.qt
+def test_auto_skip_shared_delay_enabled_by_either_rule(progress_dialog_module, qapp):
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 2000)
+    for longer, shorter in ((False, False), (False, True), (True, True), (True, False), (False, False)):
+        dialog.auto_skip_checkbox.setChecked(longer)
+        dialog.auto_skip_shorter_checkbox.setChecked(shorter)
+        assert dialog.auto_skip_time_edit.isEnabled() == longer
+        assert dialog.auto_skip_shorter_time_edit.isEnabled() == shorter
+        assert dialog.auto_skip_delay_row.isEnabled() == (longer or shorter)
+    dialog.close_without_confirmation()
+
+
 @pytest.fixture(scope="module")
 def progress_dialog_module():
     stubbed_modules = {

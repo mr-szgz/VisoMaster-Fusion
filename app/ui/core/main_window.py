@@ -851,6 +851,24 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_JobManager.addLayout(self.jobControlLayout)
 
+        self.horizontalLayout_4 = QHBoxLayout()
+        self.horizontalLayout_4.setObjectName(u"horizontalLayout_4")
+        self.jobsManagerSearchBox = QLineEdit(self.dockWidgetContents_JobManager)
+        self.jobsManagerSearchBox.setObjectName(u"jobsManagerSearchBox")
+
+        self.horizontalLayout_4.addWidget(self.jobsManagerSearchBox)
+
+        self.jobsManagerSearchResetButton = QPushButton(self.dockWidgetContents_JobManager)
+        self.jobsManagerSearchResetButton.setObjectName(u"jobsManagerSearchResetButton")
+        icon22 = QIcon()
+        icon22.addFile(u":/glyphs/media/glyphs/times_on.svg", QSize(), QIcon.Mode.Normal, QIcon.State.Off)
+        self.jobsManagerSearchResetButton.setIcon(icon22)
+
+        self.horizontalLayout_4.addWidget(self.jobsManagerSearchResetButton)
+
+
+        self.verticalLayout_JobManager.addLayout(self.horizontalLayout_4)
+
         self.jobControlLayout_2 = QFormLayout()
         self.jobControlLayout_2.setObjectName(u"jobControlLayout_2")
         self.jobDisplayLabel = QLabel(self.dockWidgetContents_JobManager)
@@ -1278,6 +1296,8 @@ class Ui_MainWindow(object):
         self.refreshJobListButton.setText(QCoreApplication.translate("MainWindow", u"Refresh Job List", None))
         self.checkNewJobListButton.setText(QCoreApplication.translate("MainWindow", u"Check for Jobs", None))
         self.smartJobListButton.setText(QCoreApplication.translate("MainWindow", u"S.M.A.R.T", None))
+        self.jobsManagerSearchBox.setPlaceholderText(QCoreApplication.translate("MainWindow", u"Search Jobs", None))
+        self.jobsManagerSearchResetButton.setText("")
         self.jobDisplayLabel.setText(QCoreApplication.translate("MainWindow", u"Format", None))
         self.jobListLabelTemplateComboBox.setItemText(0, QCoreApplication.translate("MainWindow", u"{duration_text} {job_name}", None))
         self.jobListLabelTemplateComboBox.setItemText(1, QCoreApplication.translate("MainWindow", u"{duration_text} {embedding_names}", None))

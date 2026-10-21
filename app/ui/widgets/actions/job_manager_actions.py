@@ -1700,6 +1700,7 @@ def edit_job(main_window: "MainWindow", job_item: JobQueueListWidgetItem):
         )[0]
         job_list.setCurrentIndex(index)
         job_list.scrollTo(index, QtWidgets.QAbstractItemView.ScrollHint.EnsureVisible)
+        filter_jobs(main_window)
         common_widget_actions.create_and_show_toast_message(
             main_window, "Job Updated", f"Job '{updated_name}' has been updated."
         )
@@ -1710,6 +1711,13 @@ def edit_job(main_window: "MainWindow", job_item: JobQueueListWidgetItem):
 
 def connect_job_manager_signals(main_window: "MainWindow"):
     """Connect Job Manager UI buttons to their respective functions."""
+    main_window.jobsManagerSearchBox.textChanged.connect(
+        lambda: filter_jobs(main_window)
+    )
+    main_window.jobsManagerSearchResetButton.setEnabled(False)
+    main_window.jobsManagerSearchResetButton.clicked.connect(
+        main_window.jobsManagerSearchBox.clear
+    )
     main_window.jobListLabelTemplateComboBox.currentTextChanged.connect(
         partial(change_job_list_label_template, main_window)
     )
@@ -1809,6 +1817,20 @@ def change_job_list_label_template(main_window: "MainWindow", value: str) -> Non
         item.setText(item.to_label(value))
 
 
+def filter_jobs(main_window: "MainWindow"):
+    """Filter saved job names without changing the queue or its ordering."""
+    text = main_window.jobsManagerSearchBox.text()
+    search_text = text.lower().strip()
+    main_window.jobsManagerSearchResetButton.setEnabled(bool(text))
+    job_list = main_window.jobQueueList
+    for index in range(job_list.count()):
+        item = job_list.item(index)
+        hidden = search_text not in item.data(JobDataRole.JobNameRole).lower()
+        if hidden:
+            item.setSelected(False)
+        item.setHidden(hidden)
+
+
 def refresh_job_list(main_window: "MainWindow", selected_job_name: str | None = None):
     """Updates the job queue list widget with the latest job files."""
     if main_window.jobQueueList:
@@ -1834,6 +1856,7 @@ def refresh_job_list(main_window: "MainWindow", selected_job_name: str | None = 
             )[0]
             job_list.setCurrentIndex(index)
             job_list.scrollTo(index, QtWidgets.QAbstractItemView.ScrollHint.EnsureVisible)
+        filter_jobs(main_window)
 
 
 def refresh_new_jobs(
@@ -1876,6 +1899,7 @@ def refresh_new_jobs(
         )[0]
         job_list.setCurrentIndex(index)
         job_list.scrollTo(index, QtWidgets.QAbstractItemView.ScrollHint.EnsureVisible)
+    filter_jobs(main_window)
 
 
 def remove_completed_job(main_window: "MainWindow", job_name: str):
@@ -2170,7 +2194,6 @@ def handle_batch_completion(main_window: "MainWindow"):
         main_window.job_processing_button.setCheckable(False)
         main_window.job_processing_button.setToolTip("")
         main_window.buttonProcessAll.setText("Process All")
-        main_window.job_progress_dialog.deleteLater()
         main_window.job_progress_dialog = None
         main_window.job_processing_button = None
         update_job_manager_buttons(main_window)
@@ -2550,8 +2573,12 @@ class JobProcessor(QThread):
         self.skipped_jobs.clear()  # Clear skipped list for this batch
 
         for job_name in self.jobs:
+            if self.isInterruptionRequested():
+                break
             self.analysis_started_signal.emit(job_name)
             data = self._read_job_file(job_name)
+            if self.isInterruptionRequested():
+                break
             if data is None:
                 # _read_job_file already emitted a failure signal, but we also
                 # add it to the skipped list for the final report.
@@ -2566,6 +2593,8 @@ class JobProcessor(QThread):
             # --- 1. Validate the entire job FIRST ---
             # Use the new, centralized validation function
             is_job_valid, skip_reason = _validate_job_files_exist(data)
+            if self.isInterruptionRequested():
+                break
 
             if not is_job_valid:
                 print(f"[WARN] Skipping job '{job_name}'. Reason: {skip_reason}")

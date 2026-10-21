@@ -2180,6 +2180,11 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.skip_button = QtWidgets.QPushButton("Skip", self)
         self.skip_button.setToolTip("Skip the current item using the selected save options and continue to the next")
         self.skip_button.clicked.connect(self.request_skip)
+        self.continue_processing_button = QtWidgets.QPushButton("Continue processing", self)
+        self.continue_processing_button.setToolTip("Cancel the automatic skip and process this video")
+        self.continue_processing_button.clicked.connect(self.continue_processing)
+        self.continue_processing_button.hide()
+        self.auto_skip_pending = False
         self.stop_button = QtWidgets.QPushButton("Stop", self)
         self.stop_button.setToolTip("Save the current recording and stop the batch")
         self.stop_button.clicked.connect(self.request_stop)
@@ -2234,8 +2239,42 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.suppress_notifications_checkbox = QtWidgets.QCheckBox("Suppress notifications", self)
         self.suppress_notifications_checkbox.setObjectName("suppressBatchNotificationsCheckbox")
         self.suppress_notifications_checkbox.setToolTip("Mute batch message alerts and toast notifications")
+        self.auto_skip_row = QtWidgets.QWidget(self)
+        auto_skip_layout = QtWidgets.QHBoxLayout(self.auto_skip_row)
+        auto_skip_layout.setContentsMargins(0, 0, 0, 0)
+        self.auto_skip_checkbox = QtWidgets.QCheckBox("Auto skip videos longer than", self.auto_skip_row)
+        self.auto_skip_time_edit = QtWidgets.QTimeEdit(QtCore.QTime(0, 1, 30), self.auto_skip_row)
+        self.auto_skip_time_edit.setDisplayFormat("HH:mm:ss")
+        self.auto_skip_time_edit.setAccessibleName("Auto skip video length limit")
+        auto_skip_layout.addWidget(self.auto_skip_checkbox)
+        auto_skip_layout.addWidget(self.auto_skip_time_edit)
+        auto_skip_layout.addStretch()
+        self.auto_skip_shorter_row = QtWidgets.QWidget(self)
+        shorter_layout = QtWidgets.QHBoxLayout(self.auto_skip_shorter_row)
+        shorter_layout.setContentsMargins(0, 0, 0, 0)
+        self.auto_skip_shorter_checkbox = QtWidgets.QCheckBox("Auto skip videos shorter than", self.auto_skip_shorter_row)
+        self.auto_skip_shorter_time_edit = QtWidgets.QTimeEdit(QtCore.QTime(0, 0, 5), self.auto_skip_shorter_row)
+        self.auto_skip_shorter_time_edit.setDisplayFormat("HH:mm:ss")
+        self.auto_skip_shorter_time_edit.setAccessibleName("Auto skip minimum video length")
+        shorter_layout.addWidget(self.auto_skip_shorter_checkbox)
+        shorter_layout.addWidget(self.auto_skip_shorter_time_edit)
+        shorter_layout.addStretch()
+        self.auto_skip_delay_row = QtWidgets.QWidget(self)
+        delay_layout = QtWidgets.QHBoxLayout(self.auto_skip_delay_row)
+        delay_layout.setContentsMargins(0, 0, 0, 0)
+        delay_label = QtWidgets.QLabel("Auto skip countdown:", self.auto_skip_delay_row)
+        self.auto_skip_delay_spinbox = QtWidgets.QSpinBox(self.auto_skip_delay_row)
+        self.auto_skip_delay_spinbox.setRange(1, 3600)
+        self.auto_skip_delay_spinbox.setValue(5)
+        self.auto_skip_delay_spinbox.setSuffix(" seconds")
+        delay_label.setBuddy(self.auto_skip_delay_spinbox)
+        delay_layout.addWidget(delay_label)
+        delay_layout.addWidget(self.auto_skip_delay_spinbox)
+        delay_layout.addStretch()
         self.checkbox_settings = settings_group("Dialogs/BatchProcessing", self)
         self.checkbox_settings.remove("stop_after_completion_checkbox")
+        self.checkbox_settings.remove("auto_skip_checkbox")
+        self.checkbox_settings.remove("auto_skip_shorter_checkbox")
         for name in (
             "remove_completed_checkbox",
             "stop_after_processing_checkbox",
@@ -2248,6 +2287,34 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             if self.checkbox_settings.contains(key):
                 checkbox.setChecked(self.checkbox_settings.value(key, type=bool))
             checkbox.toggled.connect(partial(self.checkbox_settings.setValue, key))
+        if self.checkbox_settings.contains("auto_skip_length"):
+            self.auto_skip_time_edit.setTime(
+                QtCore.QTime.fromString(self.checkbox_settings.value("auto_skip_length"), "HH:mm:ss")
+            )
+        self.auto_skip_time_edit.timeChanged.connect(
+            lambda value: self.checkbox_settings.setValue("auto_skip_length", value.toString("HH:mm:ss"))
+        )
+        if self.checkbox_settings.contains("auto_skip_shorter_length"):
+            self.auto_skip_shorter_time_edit.setTime(
+                QtCore.QTime.fromString(self.checkbox_settings.value("auto_skip_shorter_length"), "HH:mm:ss")
+            )
+        self.auto_skip_shorter_time_edit.timeChanged.connect(
+            lambda value: self.checkbox_settings.setValue("auto_skip_shorter_length", value.toString("HH:mm:ss"))
+        )
+        if self.checkbox_settings.contains("auto_skip_delay"):
+            self.auto_skip_delay_spinbox.setValue(self.checkbox_settings.value("auto_skip_delay", type=int))
+        self.auto_skip_delay_spinbox.valueChanged.connect(partial(self.checkbox_settings.setValue, "auto_skip_delay"))
+        self.auto_skip_time_edit.setEnabled(self.auto_skip_checkbox.isChecked())
+        self.auto_skip_shorter_time_edit.setEnabled(self.auto_skip_shorter_checkbox.isChecked())
+        self.auto_skip_shorter_checkbox.toggled.connect(self.auto_skip_shorter_time_edit.setEnabled)
+        self.auto_skip_delay_row.setEnabled(self.auto_skip_checkbox.isChecked() or self.auto_skip_shorter_checkbox.isChecked())
+        self.auto_skip_checkbox.toggled.connect(self.auto_skip_time_edit.setEnabled)
+        self.auto_skip_checkbox.toggled.connect(
+            lambda: self.auto_skip_delay_row.setEnabled(self.auto_skip_checkbox.isChecked() or self.auto_skip_shorter_checkbox.isChecked())
+        )
+        self.auto_skip_shorter_checkbox.toggled.connect(
+            lambda: self.auto_skip_delay_row.setEnabled(self.auto_skip_checkbox.isChecked() or self.auto_skip_shorter_checkbox.isChecked())
+        )
         if self.checkbox_settings.contains("minimum_partial_frames"):
             self.minimum_partial_frames_spinbox.setValue(
                 self.checkbox_settings.value("minimum_partial_frames", type=int)
@@ -2309,12 +2376,16 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             + self.minimum_partial_frames_row.sizeHint().height() + 12
             + self.clear_skipped_checkbox.sizeHint().height() + 12
             + self.suppress_notifications_checkbox.sizeHint().height() + 12
+            + self.auto_skip_row.sizeHint().height() + 12
+            + self.auto_skip_shorter_row.sizeHint().height() + 12
+            + self.auto_skip_delay_row.sizeHint().height() + 12
             + self.media_report.sizeHint().height() + 62
         )
         self.setMinimumWidth(
             self.sizeHint().width() + self.runtime_label.width()
             + self.stop_button.sizeHint().width()
             + self.skip_button.sizeHint().width() + 24
+            + self.continue_processing_button.sizeHint().width() + 100
         )
         self.runtime_clock = QtCore.QElapsedTimer()
         self.runtime_clock.start()
@@ -2415,11 +2486,51 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         )
         if reply != QtWidgets.QMessageBox.Yes:
             return
+        self.confirm_skip()
+
+    def confirm_skip(self):
+        self.auto_skip_pending = False
         self.skip_requested = True
         self.skip_button.setEnabled(False)
         self.stop_button.setEnabled(False)
         self.cancel_button.setEnabled(False)
         self.skipConfirmed.emit()
+
+    def continue_processing(self):
+        self.auto_skip_pending = False
+
+    def wait_for_auto_skip(self, duration):
+        limit = QtCore.QTime(0, 0, 0).secsTo(self.auto_skip_time_edit.time())
+        minimum = QtCore.QTime(0, 0, 0).secsTo(self.auto_skip_shorter_time_edit.time())
+        if not (
+            (self.auto_skip_checkbox.isChecked() and duration > limit)
+            or (self.auto_skip_shorter_checkbox.isChecked() and duration < minimum)
+        ):
+            return
+        self.auto_skip_pending = True
+        self.continue_processing_button.show()
+        countdown = QtCore.QElapsedTimer()
+        countdown.start()
+        delay = self.auto_skip_delay_spinbox.value()
+        while self.auto_skip_pending:
+            remaining = delay - countdown.elapsed() // 1000
+            self.skip_button.setText(f"Skipping in {remaining}..")
+            self.position_batch_controls()
+            QtWidgets.QApplication.processEvents()
+            if self.stop_requested or self.confirmedCanceled() or not (
+                (self.auto_skip_checkbox.isChecked() and duration > limit)
+                or (self.auto_skip_shorter_checkbox.isChecked() and duration < minimum)
+            ):
+                self.auto_skip_pending = False
+            if not self.auto_skip_pending:
+                break
+            if countdown.elapsed() >= delay * 1000:
+                self.confirm_skip()
+                break
+            QtCore.QThread.msleep(1)
+        self.continue_processing_button.hide()
+        self.skip_button.setText("Skip")
+        self.position_batch_controls()
 
     def request_stop(self):
         reply = QtWidgets.QMessageBox.question(
@@ -2465,7 +2576,13 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         bar = self.findChild(QtWidgets.QProgressBar)
         cancel_button = self.cancel_button
         self.suppress_notifications_checkbox.adjustSize()
-        suppress_checkbox_y = cancel_button.y() - self.suppress_notifications_checkbox.height() - 12
+        delay_y = cancel_button.y() - self.auto_skip_delay_row.sizeHint().height() - 12
+        self.auto_skip_delay_row.setGeometry(bar.x(), delay_y, bar.width(), self.auto_skip_delay_row.sizeHint().height())
+        shorter_y = delay_y - self.auto_skip_shorter_row.sizeHint().height() - 12
+        self.auto_skip_shorter_row.setGeometry(bar.x(), shorter_y, bar.width(), self.auto_skip_shorter_row.sizeHint().height())
+        auto_skip_y = shorter_y - self.auto_skip_row.sizeHint().height() - 12
+        self.auto_skip_row.setGeometry(bar.x(), auto_skip_y, bar.width(), self.auto_skip_row.sizeHint().height())
+        suppress_checkbox_y = auto_skip_y - self.suppress_notifications_checkbox.height() - 12
         self.suppress_notifications_checkbox.move(bar.x(), suppress_checkbox_y)
         stop_limit_y = suppress_checkbox_y - self.stop_after_processing_row.sizeHint().height() - 12
         self.stop_after_processing_row.setGeometry(
@@ -2507,6 +2624,11 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.skip_button.move(
             self.stop_button.x() - self.skip_button.width() - 12, cancel_button.y()
         )
+        if not self.continue_processing_button.isHidden():
+            self.continue_processing_button.resize(self.continue_processing_button.sizeHint().width(), cancel_button.height())
+            self.continue_processing_button.move(
+                self.skip_button.x() - self.continue_processing_button.width() - 12, cancel_button.y()
+            )
         self.runtime_label.move(
             bar.x(), cancel_button.geometry().center().y() - self.runtime_label.height() // 2
         )

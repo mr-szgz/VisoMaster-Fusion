@@ -83,12 +83,19 @@ def test_similarity_preferences_survive_restart(tmp_path):
             assert dialog.results.columnWidth(0) == 210
             assert dialog.results.columnWidth(2) == 275
         dialog.show()
+        app.processEvents()
+        assert dialog.worker is None
+        assert dialog.rerun_button.text() == "Start"
+        assert not dialog.stop_button.isEnabled()
+        dialog.rerun_button.click()
         deadline = time.monotonic() + 10
-        while (dialog.check_timer.isActive() or dialog.checking) and time.monotonic() < deadline:
+        while dialog.checking and time.monotonic() < deadline:
             app.processEvents()
             QtTest.QTest.qWait(5)
         assert not dialog.checking
         assert dialog.worker.completed
+        assert dialog.rerun_button.text() == "Done"
+        assert not dialog.stop_button.isEnabled()
         assert dialog.worker.jobs == (["long", "other"] if mode == "save" else ["long", "other", "new"])
         assert dialog.results.topLevelItemCount() == 2
         assert not dialog.selected_jobs()
@@ -162,7 +169,8 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
         for name in ("jobQueueList", "buttonProcessAll", "buttonProcessSelected",
                      "buttonProcessSelectedSimilar", "buttonProcessAllSimilar", "buttonStopProcessing", "loadJobButton",
                      "deleteJobButton", "smartJobListButton", "checkNewJobListButton",
-                     "refreshJobListButton", "addJobButton", "jobListLabelTemplateComboBox"):
+                     "refreshJobListButton", "addJobButton", "jobListLabelTemplateComboBox",
+                     "jobsManagerSearchBox", "jobsManagerSearchResetButton"):
             setattr(window, name, getattr(ui, name))
         window.project_root_path = root
         window.job_progress_dialog = None
@@ -215,8 +223,10 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
             prepare.assert_called_once_with(window, selected_only=False)
 
         def wait_for_check(dialog):
+            if dialog.worker is None:
+                dialog.rerun_button.click()
             deadline = time.monotonic() + 10
-            while (dialog.check_timer.isActive() or dialog.checking) and time.monotonic() < deadline:
+            while dialog.checking and time.monotonic() < deadline:
                 app.processEvents()
                 QtTest.QTest.qWait(5)
             assert not dialog.checking
@@ -357,7 +367,7 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
             wait_for_check(filtered)
             assert list(filtered.embedding_checkboxes) == ["Shared"] + ["Embedding " + str(i) for i in range(1, 7)]
             assert all(checkbox.isChecked() for checkbox in filtered.embedding_checkboxes.values())
-            assert filtered.rerun_button.text() == "Rerun"
+            assert filtered.rerun_button.text() == "Done"
             filtered.items[2].setCheckState(0, QtCore.Qt.Checked)
             filtered.items[1].setCheckState(0, QtCore.Qt.Checked)
             for name, checkbox in filtered.embedding_checkboxes.items():
@@ -365,7 +375,14 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
             assert len(filtered.clusters) == 8
             filtered.rerun_button.click()
             assert filtered.checking
-            assert not filtered.rerun_button.isEnabled()
+            assert filtered.rerun_button.isEnabled()
+            assert filtered.rerun_button.text() == "Pause"
+            filtered.rerun_button.click()
+            assert filtered.rerun_button.text() == "Resume"
+            assert not filtered.worker.resume_event.is_set()
+            filtered.rerun_button.click()
+            assert filtered.rerun_button.text() == "Pause"
+            assert filtered.worker.resume_event.is_set()
             assert not filtered.embedding_filters.isEnabled()
             assert not filtered.send_button.isEnabled()
             assert not filtered.jobs_to_process
@@ -475,7 +492,21 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
             assert not cancelled.jobs_to_process
             assert not cancelled.isVisible()
             loading = JobSimilarityDialog(window, names)
+            loading.show()
             loading.check_jobs()
+            loading.rerun_button.click()
+            assert not loading.worker.resume_event.is_set()
+            loading.stop_button.click()
+            assert loading.worker.resume_event.is_set()
+            deadline = time.monotonic() + 10
+            while loading.checking and time.monotonic() < deadline:
+                app.processEvents()
+                QtTest.QTest.qWait(5)
+            assert not loading.checking
+            assert not loading.worker.isRunning()
+            assert loading.isVisible()
+            assert not loading.stop_button.isEnabled()
+            assert loading.rerun_button.isEnabled()
             loading.reject()
             app.processEvents()
             assert not loading.worker.isRunning()
@@ -484,7 +515,6 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
             early = JobSimilarityDialog(window, names)
             early.reject()
             app.processEvents()
-            assert not early.check_timer.isActive()
             assert early.worker is None
 
         # Exercise the non-modal review, reopening it before the normal handoff.
@@ -500,6 +530,7 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
                         assert jobs == input_jobs
                         self.reran = False
                         reviews.append(self)
+                        QtCore.QTimer.singleShot(0, self.rerun_button.click)
                     def check_finished(self):
                         super().check_finished()
                         assert not self.isModal()

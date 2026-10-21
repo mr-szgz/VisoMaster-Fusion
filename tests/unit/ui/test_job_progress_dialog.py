@@ -128,6 +128,8 @@ def test_job_progress_lifecycle(tmp_path):
                 window.batch_progress_dialog = object()
                 batch_dialog = window.batch_progress_dialog
                 window.is_batch_processing = False
+                window.jobsManagerSearchBox = QtWidgets.QLineEdit(window)
+                window.jobsManagerSearchResetButton = QtWidgets.QPushButton(window)
                 window.jobQueueList = QtWidgets.QListWidget(window)
                 window.jobListLabelTemplateComboBox = QtWidgets.QComboBox(window)
                 window.jobListLabelTemplateComboBox.addItem("{job_name}")
@@ -165,8 +167,22 @@ def test_job_progress_lifecycle(tmp_path):
                 reports = []
                 summaries = []
 
-                def capture_report(box):
-                    summary = box.findChild(QtWidgets.QLabel).text()
+                original_show_result = JobProgressDialog.show_result
+                def capture_report(box, processor, command):
+                    assert restored == [True]
+                    original_show_result(box, processor, command)
+                    assert box.isVisible()
+                    assert box.is_finished
+                    assert not box.runtime_timer.isActive()
+                    assert box.cancel_button.text() == "Close"
+                    assert box.cancel_button.isEnabled()
+                    assert not box.stop_button.isEnabled()
+                    assert not box.skip_button.isEnabled()
+                    assert "Workspace restoration finished" in box.status_label.text()
+                    summary = command + "\\n" + "\\n".join(
+                        f"{field} {box.report_labels[field][1].text()}"
+                        for field in ("Queued:", "Completed:", "Failed:", "Skipped:", "Stopped:", "Cancelled:", "Not started:")
+                    ) + box.runtime_label.text()
                     reports.append(box.windowTitle())
                     summaries.append(summary)
                     assert box.findChild(QtWidgets.QPlainTextEdit).toPlainText().startswith("Queued jobs:")
@@ -203,7 +219,7 @@ def test_job_progress_lifecycle(tmp_path):
                      patch.object(actions.video_control_actions, "block_if_issue_scan_active", return_value=False), \
                      patch.object(actions.QMessageBox, "information", side_effect=lambda *args: reports.append(args[1])), \
                      patch.object(actions.QMessageBox, "warning", side_effect=lambda *args: reports.append(args[1])), \
-                     patch.object(QtWidgets.QDialog, "exec", capture_report), \
+                     patch.object(JobProgressDialog, "show_result", capture_report), \
                      patch.object(actions.QMessageBox, "critical", side_effect=lambda *args: reports.append(args[1])):
                     active = window.buttonProcessSelected if selected or similar else window.buttonProcessAll
                     other = window.buttonProcessAll if selected or similar else window.buttonProcessSelected
@@ -306,6 +322,12 @@ def test_job_progress_lifecycle(tmp_path):
                     assert window.job_processing_button is None
                     assert window.batch_progress_dialog is batch_dialog
                     assert window.is_batch_processing is False
+                    cancelled_signals = QtTest.QSignalSpy(dialog.cancelRequested)
+                    dialog.details_button.click()
+                    assert dialog.detail_text.isVisible()
+                    dialog.cancel_button.click()
+                    assert cancelled_signals.count() == 0
+                    assert not dialog.isVisible()
                 window.close()
                 window.deleteLater()
                 app.processEvents()
@@ -326,7 +348,10 @@ def test_job_progress_lifecycle(tmp_path):
             )
             dialog.finish()
             def check_counts(box):
-                summary = box.findChild(QtWidgets.QLabel).text()
+                summary = "\\n".join(
+                    f"{field} {box.report_labels[field][1].text()}"
+                    for field in ("Queued:", "Completed:", "Failed:", "Skipped:", "Stopped:", "Cancelled:", "Not started:")
+                )
                 details = box.findChild(QtWidgets.QPlainTextEdit).toPlainText()
                 assert "Queued: 4" in summary
                 assert "Completed: 1" in summary
@@ -338,8 +363,8 @@ def test_job_progress_lifecycle(tmp_path):
                 assert "Skipped: Missing media" in details
                 assert "Completed job files:" in details
                 return QtWidgets.QDialog.Accepted
-            with patch.object(QtWidgets.QDialog, "exec", check_counts):
-                dialog.show_result(processor, "Process All")
+            dialog.show_result(processor, "Process All")
+            check_counts(dialog)
             dialog.deleteLater()
         print("PASS both job commands: progress, metadata, minimize, reopen, success, cancel, load failure, isolation")
     ''')
@@ -466,6 +491,7 @@ def test_job_notification_suppression(tmp_path):
         import ast
         import sys
         from functools import wraps
+        from types import SimpleNamespace
         from pathlib import Path
         from unittest.mock import patch
         from PySide6 import QtCore, QtWidgets
@@ -492,7 +518,14 @@ def test_job_notification_suppression(tmp_path):
         display(parent)
         assert displayed == [True]
         with patch.object(QtWidgets.QDialog, "exec") as report:
-            dialog.show_result(None, "Process All")
+            dialog.finish()
+            dialog.show_result(SimpleNamespace(
+                jobs=[], skipped_jobs=[], batch_cancelled=False, batch_stopped=False,
+                batch_succeeded=True,
+            ), "Process All")
+            assert dialog.isVisible()
+            assert dialog.report_labels["Completed:"][1].text() == "0"
+            assert dialog.cancel_button.text() == "Close"
             report.assert_not_called()
         dialog.suppress_notifications_checkbox.setChecked(False)
         display(parent)

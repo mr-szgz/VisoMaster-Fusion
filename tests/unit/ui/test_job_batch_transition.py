@@ -80,7 +80,10 @@ def test_job_transition_and_final_report(tmp_path):
             def restore(mw, snapshot):
                 assert not mw.job_processor.isRunning()
                 events.append("restore")
-            def report(dialog):
+            original_show_result = job_progress_dialog.JobProgressDialog.show_result
+            def report(dialog, processor, command):
+                original_show_result(dialog, processor, command)
+                assert dialog.isVisible()
                 assert events[-1] == "restore"
                 reports.append((dialog.windowTitle(), dialog.findChild(QtWidgets.QPlainTextEdit).toPlainText()))
                 return QtWidgets.QDialog.Accepted
@@ -99,7 +102,7 @@ def test_job_transition_and_final_report(tmp_path):
                     (actions.card_actions, "clear_target_faces", clear_faces),
                     (actions.video_control_actions, "remove_all_markers", MagicMock()),
                     (job_progress_dialog, "settings_group", settings),
-                    (QtWidgets.QDialog, "exec", report),
+                    (job_progress_dialog.JobProgressDialog, "show_result", report),
                 ):
                     stack.enter_context(patch.object(target, name, value))
                 full_refresh = stack.enter_context(patch.object(actions, "refresh_job_list"))

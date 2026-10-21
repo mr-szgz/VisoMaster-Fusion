@@ -1224,6 +1224,7 @@ class _FakeProgressDialog(QObject):
         self.minimizedChanged = MagicMock()
         self.set_media_properties = MagicMock(side_effect=lambda *args: setattr(self, "item_progress_base", self.progress_bar.value() // 1000 * 1000))
         self.processing_started = MagicMock()
+        self.wait_for_auto_skip = MagicMock()
         self.processing_stopped = MagicMock()
         self.frame_processed = MagicMock()
         self.update_runtime = MagicMock()
@@ -1821,8 +1822,9 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
 @pytest.mark.parametrize("save_skipped", [False, True])
 @pytest.mark.parametrize("save_partial", [False, True])
 @pytest.mark.parametrize("clear_skipped", [False, True])
+@pytest.mark.parametrize("auto_skip", [False, True])
 def test_process_batch_images_stop_or_cancel_video_ends_batch(
-    monkeypatch, video_actions_env, save_on_stop, skip, save_skipped, save_partial, clear_skipped
+    monkeypatch, video_actions_env, save_on_stop, skip, save_skipped, save_partial, clear_skipped, auto_skip
 ):
     from app.ui.widgets.actions import job_manager_actions
 
@@ -1832,7 +1834,7 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
         assert mw.parameters[mw.selected_target_face_id] is not mw.current_widget_parameters
         assert mw.control["OutputMediaFolder"] == "E:/latest-output"
         assert not mw.video_processor.processing
-        if save_partial:
+        if save_partial and not auto_skip:
             assert mw.video_processor._finalize_default_style_recording.call_count == len(saved_media) + 1
         assert mw.video_processor.media_path == media.media_path
         assert media.media_id in mw.target_videos
@@ -1953,6 +1955,23 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
 
     record_video = MagicMock(side_effect=_record_video)
     monkeypatch.setattr(video_actions_env.module, "record_video", record_video)
+    if auto_skip and skip:
+        def wait_for_auto_skip(dialog, duration):
+            assert duration == 10 / 24
+            assert not main_window.video_processor.processing
+            main_window.current_widget_parameters["Strength"] = 83
+            main_window.control["OutputMediaFolder"] = "E:/latest-output"
+            dialog.save_skipped_checkbox.isChecked.return_value = save_skipped
+            dialog.clear_skipped_checkbox.isChecked.return_value = clear_skipped
+            dialog.skip_button.click()
+
+        original_init = _FakeProgressDialog.__init__
+
+        def init_with_auto_skip(dialog, *args, **kwargs):
+            original_init(dialog, *args, **kwargs)
+            dialog.wait_for_auto_skip.side_effect = lambda duration: wait_for_auto_skip(dialog, duration)
+
+        monkeypatch.setattr(_FakeProgressDialog, "__init__", init_with_auto_skip)
     monkeypatch.setattr(
         video_actions_env.module.QtCore.QThread, "msleep", lambda *_args: None
     )
@@ -1968,11 +1987,11 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
     assert main_window.videoSeekSlider.value_set == 37
 
     if skip:
-        assert record_video.call_count == 2
+        assert record_video.call_count == (0 if auto_skip else 2)
         assert saved_media == (["E:/media/video_1.mp4", "E:/media/video_2.mp4"] if save_skipped else [])
         assert refresh_jobs.call_count == (2 if save_skipped else 0)
-        assert main_window.video_processor.stop_processing.call_count == (0 if save_partial else 2)
-        assert main_window.video_processor._finalize_default_style_recording.call_count == (2 if save_partial else 0)
+        assert main_window.video_processor.stop_processing.call_count == (0 if auto_skip or save_partial else 2)
+        assert main_window.video_processor._finalize_default_style_recording.call_count == (2 if save_partial and not auto_skip else 0)
         assert main_window.targetVideosList.count() == (0 if clear_skipped else 2)
         assert len(main_window.target_videos) == (0 if clear_skipped else 2)
         message = video_actions_env.common_widget_actions.create_and_show_messagebox.call_args[0][2]

@@ -3115,6 +3115,16 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     # This will use the markers, inputs, etc., currently set in the UI
                     # and will block until the video is fully processed and saved.
 
+                    progress_dialog.wait_for_auto_skip(
+                        (main_window.video_processor.max_frame_number + 1) / main_window.video_processor.fps
+                    )
+                    if progress_dialog.confirmedCanceled() or progress_dialog.stop_requested:
+                        break
+                    if progress_dialog.skip_requested:
+                        skipped_count += 1
+                        progress_dialog.setValue((processed_count + failed_count + skipped_count) * 1000)
+                        continue
+
                     # 1. Purge the tracker and the Temporal EMA state for the new video
                     if hasattr(main_window, "video_processor") and hasattr(
                         main_window.video_processor, "sequential_detector"

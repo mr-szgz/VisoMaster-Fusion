@@ -210,7 +210,7 @@ def test_job_list_widgets_with_real_qt(tmp_path):
             JobQueueListWidgetItem=widgets.JobQueueListWidgetItem,
             widget_components=SimpleNamespace(SaveJobDialog=Dialog, TargetMediaCardButton=object),
             _serialize_job_data=lambda mw: copy.deepcopy(job), refresh_job_list=MagicMock(),
-            common_widget_actions=MagicMock(),
+            common_widget_actions=MagicMock(), filter_jobs=MagicMock(),
         )
         exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), "exec"), namespace)
         new_dialog.restore_selected_face_checkbox.setChecked(True)
@@ -346,6 +346,7 @@ def test_real_main_window_job_save_and_edit(tmp_path):
                 QtCore.QTimer.singleShot(0, save_button.click)
                 with patch.object(actions, "refresh_job_list", refresh_while_visible):
                     return original_exec(dialog)
+            window.jobsManagerSearchBox.setText("Created")
             with patch.object(widget_components.SaveJobDialog, "exec", edit_dialog_exec):
                 actions.edit_job(window, item)
             updated = json.loads((jobs / "Renamed.json").read_text())
@@ -354,10 +355,53 @@ def test_real_main_window_job_save_and_edit(tmp_path):
             assert not (jobs / "Created.json").exists()
             item = window.jobQueueList.currentItem()
             assert item.data(JobDataRole.JobNameRole) == "Renamed"
-            assert item.isSelected()
+            assert item.isHidden()
+            assert not item.isSelected()
+            window.jobsManagerSearchResetButton.click()
+            window.jobQueueList.setCurrentItem(item)
+            item.setSelected(True)
             reopened = widget_components.SaveJobDialog(window, job_item=item)
             assert reopened.output_file_name == "custom-output"
             assert reopened.restore_selected_face is True
+            # Search is case-insensitive, trimmed, and independent of the label template.
+            search = window.jobsManagerSearchBox
+            reset = window.jobsManagerSearchResetButton
+            assert not reset.isEnabled()
+            search.setText("  RENAM  ")
+            assert not item.isHidden()
+            assert item.isSelected()
+            assert reset.isEnabled()
+            search.setText("missing")
+            assert item.isHidden()
+            assert not item.isSelected()
+            assert actions.get_selected_jobs(window) == []
+            assert not window.buttonProcessSelected.isEnabled()
+            reset.click()
+            assert search.text() == ""
+            assert not reset.isEnabled()
+            assert not item.isHidden()
+            assert not item.isSelected()
+            search.setText("   ")
+            assert not item.isHidden()
+            reset.click()
+            search.setText("renamed")
+            window.jobListLabelTemplateComboBox.setCurrentText("{duration_text} {embedding_names}")
+            assert "Renamed" not in item.text()
+            assert not item.isHidden()
+            # Both refresh paths preserve the active search, including newly saved jobs.
+            (jobs / "Other.json").write_text(json.dumps(updated))
+            actions.refresh_new_jobs(window, selected_job_name="Other")
+            other = window.jobQueueList.currentItem()
+            assert other.isHidden()
+            assert not other.isSelected()
+            assert not item.isHidden()
+            actions.refresh_job_list(window, selected_job_name="Other")
+            assert window.jobQueueList.currentItem().isHidden()
+            assert actions.get_selected_jobs(window) == []
+            assert search.text() == "renamed"
+            assert window.jobQueueList.count() == 2
+            reset.click()
+            assert all(not window.jobQueueList.item(i).isHidden() for i in range(2))
             app.processEvents()
             window.quit_without_saving = True
             window.close()
@@ -425,8 +469,8 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         from types import SimpleNamespace
 
         source = Path("app/ui/widgets/actions/job_manager_actions.py").read_text(encoding="utf-8")
-        function = next(node for node in ast.parse(source).body
-                        if isinstance(node, ast.FunctionDef) and node.name == "refresh_new_jobs")
+        functions = [node for node in ast.parse(source).body
+                     if isinstance(node, ast.FunctionDef) and node.name in ("refresh_new_jobs", "filter_jobs")]
         factory = MagicMock(side_effect=widgets.JobQueueListWidgetItem)
         update_buttons = MagicMock()
         namespace = {
@@ -440,10 +484,12 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
             "list_jobs": lambda mw: [p.stem for p in root.glob("*.json")],
             "update_job_manager_buttons": update_buttons,
         }
-        exec(compile(ast.Module(body=[function], type_ignores=[]), "<refresh_new_jobs>", "exec"), namespace)
+        exec(compile(ast.Module(body=functions, type_ignores=[]), "<refresh_new_jobs>", "exec"), namespace)
         combo = QtWidgets.QComboBox()
         combo.addItem("{job_name}")
-        mw = SimpleNamespace(jobQueueList=queue, jobListLabelTemplateComboBox=combo)
+        mw = SimpleNamespace(jobQueueList=queue, jobListLabelTemplateComboBox=combo,
+                             jobsManagerSearchBox=QtWidgets.QLineEdit(),
+                             jobsManagerSearchResetButton=QtWidgets.QPushButton())
         queue.setCurrentItem(item)
         # An unreadable existing file must never be reopened by incremental refresh.
         path.write_text("invalid json", encoding="utf-8")
