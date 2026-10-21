@@ -207,7 +207,7 @@ def delete_job(main_window: "MainWindow", job_names: list[str] | None = None) ->
             print(f"[ERROR] Job file not found for deletion: {job_file}")
 
     if deleted_any:
-        refresh_job_list(main_window)  # Update the UI list
+        refresh_new_jobs(main_window, saved_jobs={})  # Prune loaded items only.
         common_widget_actions.create_and_show_toast_message(
             main_window, "Job(s) Deleted", "Selected jobs moved to Recycle Bin."
         )
@@ -1641,7 +1641,15 @@ def prompt_job_name(main_window: "MainWindow"):
 
         # Save the job and refresh the list
         save_job(main_window, dialog)
-        refresh_new_jobs(main_window, selected_job_name=job_name)
+        job_path = get_jobs_dir(main_window) / f"{job_name}.json"
+        with job_path.open(encoding="utf-8") as job_file:
+            job_data = json.load(job_file)
+        job_list = main_window.jobQueueList
+        for index in range(job_list.count()):
+            if job_list.item(index).data(JobDataRole.JobNameRole) == job_name:
+                job_list.takeItem(index)
+                break
+        refresh_new_jobs(main_window, selected_job_name=job_name, saved_jobs={job_name: job_data})
 
 
 def show_job_context_menu(main_window: "MainWindow", position):
@@ -1690,7 +1698,8 @@ def edit_job(main_window: "MainWindow", job_item: JobQueueListWidgetItem):
             json.dump(job_data, job_file, indent=4)
             job_file.truncate()
 
-        refresh_job_list(main_window)
+        main_window.jobQueueList.takeItem(main_window.jobQueueList.row(job_item))
+        refresh_new_jobs(main_window, saved_jobs={updated_name: job_data})
         dialog.accept()
         job_list = main_window.jobQueueList
         model = job_list.model()

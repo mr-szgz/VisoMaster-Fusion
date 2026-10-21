@@ -209,7 +209,7 @@ def test_job_list_widgets_with_real_qt(tmp_path):
             json=json, Path=Path, Optional=Optional, Qt=QtCore.Qt,
             JobQueueListWidgetItem=widgets.JobQueueListWidgetItem,
             widget_components=SimpleNamespace(SaveJobDialog=Dialog, TargetMediaCardButton=object),
-            _serialize_job_data=lambda mw: copy.deepcopy(job), refresh_job_list=MagicMock(),
+            _serialize_job_data=lambda mw: copy.deepcopy(job), refresh_new_jobs=MagicMock(),
             common_widget_actions=MagicMock(), filter_jobs=MagicMock(),
         )
         exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), "exec"), namespace)
@@ -228,14 +228,16 @@ def test_job_list_widgets_with_real_qt(tmp_path):
             dialog.output_name_edit.setText("edited-output")
             dialog.buttonBox.button(QtWidgets.QDialogButtonBox.Ok).click()
             return QtWidgets.QDialog.Accepted
-        namespace["refresh_job_list"].side_effect = lambda mw: item.setData(
-            widgets.JobDataRole.JobNameRole, "Renamed")
+        def refresh_edited(mw, *, saved_jobs):
+            item.setData(widgets.JobDataRole.JobNameRole, "Renamed")
+            mw.jobQueueList.addItem(item)
+        namespace["refresh_new_jobs"].side_effect = refresh_edited
         with patch.object(Dialog, "exec", accept_edit):
             namespace["edit_job"](parent, item)
         updated = json.loads((root / "Renamed.json").read_text())
         assert updated == {**job, "restore_selected_face": True, "output_file_name": "edited-output"}
         assert not path.exists()
-        namespace["refresh_job_list"].assert_called_once_with(parent)
+        namespace["refresh_new_jobs"].assert_called_once_with(parent, saved_jobs={"Renamed": updated})
         assert queue.currentItem() is item
 
         # The regenerated Designer form actually uses the promoted widget.
@@ -335,16 +337,16 @@ def test_real_main_window_job_save_and_edit(tmp_path):
                 dialog.output_name_edit.setText("custom-output")
                 dialog.restore_selected_face_checkbox.setChecked(True)
                 save_button = dialog.buttonBox.button(QtWidgets.QDialogButtonBox.Ok)
-                original_refresh = actions.refresh_job_list
-                def refresh_while_visible(main_window):
+                original_refresh = actions.refresh_new_jobs
+                def refresh_while_visible(main_window, *, saved_jobs):
                     assert dialog.isVisible()
                     assert not save_button.isEnabled()
                     assert save_button.text() == "Saving…"
                     assert (jobs / "Renamed.json").is_file()
-                    original_refresh(main_window)
+                    original_refresh(main_window, saved_jobs=saved_jobs)
                     assert dialog.isVisible()
                 QtCore.QTimer.singleShot(0, save_button.click)
-                with patch.object(actions, "refresh_job_list", refresh_while_visible):
+                with patch.object(actions, "refresh_new_jobs", refresh_while_visible):
                     return original_exec(dialog)
             window.jobsManagerSearchBox.setText("Created")
             with patch.object(widget_components.SaveJobDialog, "exec", edit_dialog_exec):
