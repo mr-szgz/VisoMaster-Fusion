@@ -212,7 +212,9 @@ class BatchSaveJobsDialog(QtWidgets.QDialog):
         self.timer.start(1000)
         self.status_label.setText("Preparing job configuration…")
         if not self.cancel_requested and self.media_items:
-            workspace = job_manager_actions._serialize_job_data(self.parentWidget())
+            workspace = job_manager_actions._serialize_job_data(
+                self.parentWidget(), assigned_embeddings_only=True
+            )
             workspace["use_job_name_for_output"] = True
             workspace["output_file_name"] = None
             workspace["restore_selected_face"] = self.parentWidget().control["ClusterOutputBySourceToggle"]

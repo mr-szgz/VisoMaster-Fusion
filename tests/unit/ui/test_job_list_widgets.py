@@ -209,7 +209,7 @@ def test_job_list_widgets_with_real_qt(tmp_path):
             json=json, Path=Path, Optional=Optional, Qt=QtCore.Qt,
             JobQueueListWidgetItem=widgets.JobQueueListWidgetItem,
             widget_components=SimpleNamespace(SaveJobDialog=Dialog, TargetMediaCardButton=object),
-            _serialize_job_data=lambda mw: copy.deepcopy(job), refresh_new_jobs=MagicMock(),
+            _serialize_job_data=lambda mw, *, assigned_embeddings_only: copy.deepcopy(job), refresh_new_jobs=MagicMock(),
             common_widget_actions=MagicMock(), filter_jobs=MagicMock(),
         )
         exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), "exec"), namespace)

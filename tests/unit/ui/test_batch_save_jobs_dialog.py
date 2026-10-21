@@ -252,7 +252,7 @@ def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed):
             if mode == "cancel_before":
                 manager._serialize_job_data.assert_not_called()
             if expected:
-                manager._serialize_job_data.assert_called_once_with(window)
+                manager._serialize_job_data.assert_called_once_with(window, assigned_embeddings_only=True)
                 manager.refresh_new_jobs.assert_called_once_with(
                     window, selected_job_name=f"sample_{expected}",
                     saved_jobs={Path(name).stem: data for name, data in saved.items()},

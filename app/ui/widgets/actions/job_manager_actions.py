@@ -1199,7 +1199,9 @@ def _restore_workspace_from_snapshot(main_window: "MainWindow", data: dict):
         progress_dialog.close()
 
 
-def _serialize_job_data(main_window: "MainWindow") -> dict:
+def _serialize_job_data(
+    main_window: "MainWindow", *, assigned_embeddings_only: bool = False
+) -> dict:
     """Serializes all necessary workspace data into a dictionary for saving."""
 
     target_faces_data = {}
@@ -1234,8 +1236,15 @@ def _serialize_job_data(main_window: "MainWindow") -> dict:
             },
         }
 
-    # Serialize Merged Embeddings
-    for embedding_id, embed_button in main_window.merged_embeddings.items():
+    # Job files need assigned embeddings; batch restoration snapshots need all of them.
+    embeddings_to_save = main_window.merged_embeddings
+    if assigned_embeddings_only:
+        embeddings_to_save = {
+            embedding_id: main_window.merged_embeddings[embedding_id]
+            for target_face in main_window.target_faces.values()
+            for embedding_id in target_face.assigned_merged_embeddings
+        }
+    for embedding_id, embed_button in embeddings_to_save.items():
         kv_map_path = None
         if getattr(embed_button, "kv_map", None) is not None:
             kv_data_dir = (
@@ -1336,7 +1345,7 @@ def save_job_workspace(
     data_filename = f"{job_name_path}.json"
 
     # Get all workspace data
-    workspace_data = _serialize_job_data(main_window)
+    workspace_data = _serialize_job_data(main_window, assigned_embeddings_only=True)
     if target_media is not None:
         workspace_data["target_medias_data"] = [
             {"media_id": target_media.media_id, "media_path": target_media.media_path}
