@@ -474,6 +474,8 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         functions = [node for node in ast.parse(source).body
                      if isinstance(node, ast.FunctionDef) and node.name in ("refresh_new_jobs", "filter_jobs")]
         factory = MagicMock(side_effect=widgets.JobQueueListWidgetItem)
+        from app.ui.widgets import job_refresh_dialog
+        job_refresh_dialog.JobQueueListWidgetItem = factory
         update_buttons = MagicMock()
         namespace = {
             "JobDataRole": widgets.JobDataRole,
@@ -489,9 +491,11 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         exec(compile(ast.Module(body=functions, type_ignores=[]), "<refresh_new_jobs>", "exec"), namespace)
         combo = QtWidgets.QComboBox()
         combo.addItem("{job_name}")
-        mw = SimpleNamespace(jobQueueList=queue, jobListLabelTemplateComboBox=combo,
-                             jobsManagerSearchBox=QtWidgets.QLineEdit(),
-                             jobsManagerSearchResetButton=QtWidgets.QPushButton())
+        mw = QtWidgets.QMainWindow()
+        mw.jobQueueList = queue
+        mw.jobListLabelTemplateComboBox = combo
+        mw.jobsManagerSearchBox = QtWidgets.QLineEdit()
+        mw.jobsManagerSearchResetButton = QtWidgets.QPushButton()
         queue.setCurrentItem(item)
         # An unreadable existing file must never be reopened by incremental refresh.
         path.write_text("invalid json", encoding="utf-8")
@@ -640,7 +644,9 @@ def test_job_manager_startup_waits_for_explicit_refresh(tmp_path):
         assert window.buttonProcessAll.isEnabled()
         assert job_path.read_bytes() == original
         # Empty explicit refresh does not leave a selectable placeholder job.
-        with patch.object(actions, "list_jobs", return_value=[]):
+        empty_jobs = root / "empty-jobs"
+        empty_jobs.mkdir()
+        with patch.object(actions, "get_jobs_dir", return_value=empty_jobs):
             window.refreshJobListButton.click()
         assert window.jobQueueList.count() == 0
         assert not window.buttonProcessAll.isEnabled()

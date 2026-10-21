@@ -1850,30 +1850,15 @@ def filter_jobs(main_window: "MainWindow"):
 
 
 def refresh_job_list(main_window: "MainWindow", selected_job_name: str | None = None):
-    """Updates the job queue list widget with the latest job files."""
+    """Read saved jobs in the background and display each item as it is scanned."""
+    from app.ui.widgets.job_refresh_dialog import JobRefreshDialog
+
     if main_window.jobQueueList:
         main_window.jobQueueList.clear()
-        job_names = list_jobs(main_window)
-        jobs_dir = get_jobs_dir(main_window)
-        for job_name in job_names:
-            item = JobQueueListWidgetItem(QFileInfo(str(jobs_dir / f"{job_name}.json")))
-            item.setData(JobDataRole.JobNameRole, job_name)
-            item.setData(
-                Qt.ItemDataRole.DisplayRole,
-                item.to_label(main_window.jobListLabelTemplateComboBox.currentText()),
-            )
-            item.setData(Qt.ItemDataRole.ToolTipRole, item.to_tooltip())
-            main_window.jobQueueList.addItem(item)
+        dialog = JobRefreshDialog(main_window, get_jobs_dir(main_window), selected_job_name)
+        dialog.exec()
+        dialog.deleteLater()
         update_job_manager_buttons(main_window)
-        if selected_job_name is not None:
-            job_list = main_window.jobQueueList
-            model = job_list.model()
-            index = model.match(
-                model.index(0, 0), JobDataRole.JobNameRole, selected_job_name,
-                1, Qt.MatchFlag.MatchExactly,
-            )[0]
-            job_list.setCurrentIndex(index)
-            job_list.scrollTo(index, QtWidgets.QAbstractItemView.ScrollHint.EnsureVisible)
         filter_jobs(main_window)
 
 
@@ -1882,6 +1867,18 @@ def refresh_new_jobs(
     saved_jobs: dict[str, dict] | None = None,
 ):
     """Remove missing jobs and insert unlisted jobs, preserving existing items."""
+    if saved_jobs is None:
+        from app.ui.widgets.job_refresh_dialog import JobRefreshDialog
+
+        dialog = JobRefreshDialog(
+            main_window, get_jobs_dir(main_window), selected_job_name, preserve_existing=True
+        )
+        dialog.exec()
+        dialog.deleteLater()
+        update_job_manager_buttons(main_window)
+        filter_jobs(main_window)
+        return
+
     job_list = main_window.jobQueueList
     jobs_dir = get_jobs_dir(main_window)
     for index in range(job_list.count() - 1, -1, -1):

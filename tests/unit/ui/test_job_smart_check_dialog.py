@@ -13,7 +13,9 @@ import pytest
 def test_smart_scan_report_and_cleanup(tmp_path, theme, scale):
     script = textwrap.dedent("""
         import copy
+        import cv2
         import json
+        import numpy as np
         from itertools import product
         from pathlib import Path
         import sys
@@ -67,6 +69,9 @@ def test_smart_scan_report_and_cleanup(tmp_path, theme, scale):
             "embeddings_data": {"embed": {"embedding_name": "Saved", "embedding_store": {}}},
         }
         payloads = {"pass": valid, "same-assets": copy.deepcopy(valid)}
+        payloads["same-assets"]["embeddings_data"]["unused"] = {
+            "embedding_name": "Unused", "embedding_store": {}}
+        payloads["same-assets"]["target_medias_data"][0].update(fps=25.0, frame_count=10)
         for name, field in (("missing-media", "media"), ("missing-face", "face"),
                             ("missing-embedding", "embedding")):
             payload = copy.deepcopy(valid)
@@ -126,6 +131,143 @@ def test_smart_scan_report_and_cleanup(tmp_path, theme, scale):
         assert dialog.remove_button.isEnabled()
         assert dialog.close_button.isEnabled()
         assert dialog.results.topLevelItemCount() == 6
+        assert [dialog.results.headerItem().text(i) for i in range(7)] == [
+            "Job", "Status", "Embedding name", "Embeddings", "FPS", "Frames", "Bytes"]
+        rows = {dialog.results.topLevelItem(i).text(0): dialog.results.topLevelItem(i)
+                for i in range(dialog.results.topLevelItemCount())}
+        assert [rows["pass"].text(i) for i in range(2, 6)] == ["Saved", "1", "", ""]
+        for name, row in rows.items():
+            assert int(row.text(6)) == (jobs / f"{name}.json").stat().st_size
+        assert int(dialog.total_bytes_label.text()) == sum(
+            (jobs / f"{name}.json").stat().st_size for name in names)
+        assert not dialog.remove_embeddings_button.isEnabled()
+        assert not dialog.update_metadata_button.isEnabled()
+
+        assert dialog.property_filters["Embeddings > 1"].text() == "Embeddings > 1 (1)"
+        assert dialog.property_filters["Missing FPS"].text() == "Missing FPS (5)"
+        assert dialog.property_filters["Missing Frames"].text() == "Missing Frames (5)"
+        for states in product((False, True), repeat=3):
+            for checkbox, checked in zip(dialog.state_filters.values(), states):
+                checkbox.setChecked(checked)
+            for properties in product((False, True), repeat=3):
+                for checkbox, checked in zip(dialog.property_filters.values(), properties):
+                    checkbox.setChecked(checked)
+                for row in rows.values():
+                    matches = (row.text(3) != "" and int(row.text(3)) > 1,
+                               row.text(4) == "", row.text(5) == "")
+                    visible = dialog.state_filters[row.text(1)].isChecked() and (
+                        not any(properties) or any(checked and match for checked, match in zip(properties, matches)))
+                    assert row.isHidden() == (not visible)
+                dialog.select_all_button.click()
+                assert {row.text(0) for row in dialog.results.selectedItems()} == {
+                    row.text(0) for row in rows.values() if not row.isHidden()}
+        for checkbox in dialog.property_filters.values():
+            checkbox.setChecked(False)
+        for checkbox in dialog.state_filters.values():
+            checkbox.setChecked(True)
+        dialog.results.clearSelection()
+
+        assert not dialog.select_job_button.isEnabled()
+        rows["pass"].setSelected(True)
+        assert dialog.select_job_button.isEnabled()
+        window.jobsManagerSearchBox.setText("missing")
+        dialog.select_job_button.click()
+        assert window.jobsManagerSearchBox.text() == ""
+        assert [item.data(JobDataRole.JobNameRole) for item in window.jobQueueList.selectedItems()] == ["pass"]
+        assert not window.jobQueueList.currentItem().isHidden()
+        assert dialog.isVisible()
+        rows["same-assets"].setSelected(True)
+        assert not dialog.select_job_button.isEnabled()
+        dialog.results.clearSelection()
+
+        assert dialog.results.isSortingEnabled()
+        sorting_tree = QtWidgets.QTreeWidget()
+        sorting_tree.setColumnCount(7)
+        for value in ("100", "2", "10", ""):
+            sorting_tree.addTopLevelItem(smart.JobSmartCheckItem(
+                [value, "Passed", "Saved", value, value, value, value]))
+        for column in (3, 4, 5, 6):
+            for order, expected in (
+                (QtCore.Qt.AscendingOrder, ["", "2", "10", "100"]),
+                (QtCore.Qt.DescendingOrder, ["100", "10", "2", ""]),
+            ):
+                sorting_tree.sortItems(column, order)
+                assert [sorting_tree.topLevelItem(i).text(column) for i in range(4)] == expected
+        sorting_tree.clear()
+        for value in ("29.97", "9.5", "100.0"):
+            sorting_tree.addTopLevelItem(smart.JobSmartCheckItem(
+                ["job", "Passed", "Saved", "1", value, "10", "100"]))
+        sorting_tree.sortItems(4, QtCore.Qt.DescendingOrder)
+        assert [sorting_tree.topLevelItem(i).text(4) for i in range(3)] == ["100.0", "29.97", "9.5"]
+        sorting_tree.clear()
+        sorting_tree.setHeaderLabels(["Job", "Status", "Embedding name", "Embeddings", "FPS", "Frames", "Bytes"])
+        sorting_tree.setSortingEnabled(True)
+        for index in range(1200):
+            sorting_tree.addTopLevelItem(smart.JobSmartCheckItem([
+                f"job-{index}", "Passed" if index % 2 else "Failed", f"embedding-{index % 10}",
+                str(index % 10), str(index / 10), str(index), str(index * 100),
+            ]))
+            # Force pending sorts while new scan results arrive.
+            sorting_tree.topLevelItem(0).setHidden(False)
+        sorting_tree.show()
+        app.processEvents()
+        for column in range(7):
+            header = sorting_tree.header()
+            sorting_tree.scrollToItem(sorting_tree.topLevelItem(0), QtWidgets.QAbstractItemView.PositionAtTop)
+            sorting_tree.horizontalScrollBar().setValue(header.sectionPosition(column))
+            point = QtCore.QPoint(header.sectionViewportPosition(column) + header.sectionSize(column) // 2,
+                                 header.height() // 2)
+            for _ in range(2):
+                QtTest.QTest.mouseClick(header.viewport(), QtCore.Qt.LeftButton, pos=point)
+                assert sorting_tree.sortColumn() == column
+                values = [sorting_tree.topLevelItem(i).text(column) for i in range(1200)]
+                key = float if column == 4 else int if column in (3, 5, 6) else str
+                assert values == sorted(values, key=key,
+                    reverse=header.sortIndicatorOrder() == QtCore.Qt.DescendingOrder)
+        sorting_tree.close()
+        dialog.results.sortItems(6, QtCore.Qt.DescendingOrder)
+        assert [int(dialog.results.topLevelItem(i).text(6)) for i in range(6)] == sorted(
+            (int(row.text(6)) for row in rows.values()), reverse=True)
+
+        writer = cv2.VideoWriter(str(media), cv2.VideoWriter_fourcc(*"mp4v"), 25, (32, 32))
+        assert writer.isOpened()
+        for _ in range(10):
+            writer.write(np.zeros((32, 32, 3), dtype=np.uint8))
+        writer.release()
+        for name in ("pass", "same-assets"):
+            payload = copy.deepcopy(valid)
+            payload["embeddings_data"]["unused"] = {"embedding_name": "Unused", "embedding_store": {}}
+            if name == "pass":
+                payload["target_medias_data"][0]["fps"] = 30.0
+                payload["embeddings_data"]["second"] = {"embedding_name": "Second", "embedding_store": {}}
+                payload["target_faces_data"]["second-face"] = {"assigned_merged_embeddings": ["second"]}
+            (jobs / f"{name}.json").write_text(json.dumps(payload))
+        untouched = (jobs / "same-assets.json").read_bytes()
+        rows["pass"].setSelected(True)
+        assert dialog.remove_embeddings_button.isEnabled()
+        dialog.remove_embeddings_button.click()
+        cleaned = json.loads((jobs / "pass.json").read_text())
+        assert set(cleaned["embeddings_data"]) == {"embed", "second"}
+        assert rows["pass"].text(3) == "2"
+        assert (jobs / "same-assets.json").read_bytes() == untouched
+        rows["same-assets"].setSelected(True)
+        dialog.update_metadata_button.click()
+        for name, fps in (("pass", 30.0), ("same-assets", 25.0)):
+            saved = json.loads((jobs / f"{name}.json").read_text())
+            assert saved["target_medias_data"][0]["fps"] == fps
+            assert saved["target_medias_data"][0]["frame_count"] == 10
+            assert rows[name].text(4) == str(fps)
+            assert rows[name].text(5) == "10"
+            assert int(rows[name].text(6)) == (jobs / f"{name}.json").stat().st_size
+        assert int(dialog.total_bytes_label.text()) == sum(
+            (jobs / f"{name}.json").stat().st_size for name in names)
+        with patch.object(smart.cv2, "VideoCapture") as capture:
+            dialog.update_metadata_button.click()
+            capture.assert_not_called()
+        assert dialog.property_filters["Embeddings > 1"].text() == "Embeddings > 1 (2)"
+        assert dialog.property_filters["Missing FPS"].text() == "Missing FPS (4)"
+        assert dialog.property_filters["Missing Frames"].text() == "Missing Frames (4)"
+        dialog.results.clearSelection()
         dialog.grab().save(str(root / "report.png"))
 
         def check_filters(report):
@@ -165,6 +307,7 @@ def test_smart_scan_report_and_cleanup(tmp_path, theme, scale):
                     QtTest.QTest.qWait(5)
                 assert entered.is_set()
                 assert partial.checked_jobs == 1
+                assert int(partial.total_bytes_label.text()) == (jobs / "missing-media.json").stat().st_size
                 assert partial.state_filters["Failed"].text() == "Failed (1)"
                 assert partial.state_filters["Passed"].text() == "Passed (0)"
                 assert partial.stop_button.isEnabled()
@@ -221,6 +364,7 @@ def test_smart_scan_report_and_cleanup(tmp_path, theme, scale):
             path.unlink()
         with patch.object(smart, "send2trash", side_effect=trash):
             dialog.state_filters["Removed"].setChecked(False)
+            dialog.results.sortItems(1, QtCore.Qt.AscendingOrder)
             dialog.remove_button.click()
         assert all(
             dialog.results.topLevelItem(i).isHidden()
@@ -239,6 +383,7 @@ def test_smart_scan_report_and_cleanup(tmp_path, theme, scale):
         assert dialog.state_filters["Failed"].text() == "Failed (0)"
         assert dialog.state_filters["Removed"].text() == "Removed (4)"
         assert dialog.checked_jobs == 6 and len(dialog.failed_jobs) == 4
+        assert int(dialog.total_bytes_label.text()) == sum(path.stat().st_size for path in jobs.glob("*.json"))
         dialog.close_button.click()
         assert not dialog.isVisible()
 
