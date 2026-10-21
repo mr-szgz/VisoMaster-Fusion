@@ -908,7 +908,7 @@
             <item row="0" column="1">
              <widget class="QPushButton" name="batchImageButton">
               <property name="toolTip">
-               <string>Processes the currently selected face across the entire target video or image.</string>
+               <string>Processes the currently selected face across all target media.</string>
               </property>
               <property name="text">
                <string>Batch Process All Target Media</string>

@@ -1226,7 +1226,7 @@ class Ui_MainWindow(object):
         self.saveEmbeddingAsButton.setText("")
         self.saveImageButton.setText(QCoreApplication.translate("MainWindow", u"Save Image", None))
 #if QT_CONFIG(tooltip)
-        self.batchImageButton.setToolTip(QCoreApplication.translate("MainWindow", u"Processes the currently selected face across the entire target video or image.", None))
+        self.batchImageButton.setToolTip(QCoreApplication.translate("MainWindow", u"Processes the currently selected face across all target media.", None))
 #endif // QT_CONFIG(tooltip)
         self.batchImageButton.setText(QCoreApplication.translate("MainWindow", u"Batch Process All Target Media", None))
 #if QT_CONFIG(tooltip)
