@@ -67,13 +67,12 @@ class JobProgressDialog(QtWidgets.QDialog):
         report.addWidget(self.eta_label, row, 2)
         layout.addLayout(report)
         metrics = QtWidgets.QFormLayout()
-        for field in ("Queued:", "Completed:", "Failed:", "Skipped:", "Stopped:", "Cancelled:", "Not started:"):
+        for field in ("Completed:", "Failed:", "Skipped:"):
             label = QtWidgets.QLabel(field, self)
             value = QtWidgets.QLabel("0", self)
             value.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
             metrics.addRow(label, value)
             self.report_labels[field] = (label, value)
-        self.report_labels["Queued:"][1].setText(str(self.total_jobs))
         layout.addLayout(metrics)
         self.detail_text = QtWidgets.QPlainTextEdit(self)
         self.detail_text.setReadOnly(True)
@@ -174,6 +173,7 @@ class JobProgressDialog(QtWidgets.QDialog):
     @QtCore.Slot(int, int)
     def queue_ready(self, total, skipped):
         self.total_jobs = total
+        self.report_labels["Skipped:"][1].setText(str(skipped))
         self.progress_bar.setRange(0, total)
         self.progressChanged.emit(0, total)
 
@@ -244,6 +244,7 @@ class JobProgressDialog(QtWidgets.QDialog):
     @QtCore.Slot(str)
     def job_completed(self, job_name):
         self.completed_job_names.add(job_name)
+        self.report_labels["Completed:"][1].setText(str(len(self.completed_job_names)))
         self.completed_frames = self.total_frames
         self.report_labels["Item progress:"][1].setText("100.0%")
         self.eta_label.setText("ETA: 00:00:00")
@@ -258,11 +259,15 @@ class JobProgressDialog(QtWidgets.QDialog):
     @QtCore.Slot(str)
     def job_skipped(self, job_name):
         self.skipped_job_names.add(job_name)
+        self.report_labels["Skipped:"][1].setText(
+            str(len(self.job_items) - self.total_jobs + len(self.skipped_job_names))
+        )
         self.progress_bar.setValue(self.current_index)
 
     @QtCore.Slot(str, str)
     def job_failed(self, job_name, error):
         self.job_errors[job_name] = error
+        self.report_labels["Failed:"][1].setText(str(len(self.started_job_names.intersection(self.job_errors))))
 
     def stopping(self):
         self.stop_after_completion_checkbox.setEnabled(False)
@@ -327,9 +332,6 @@ class JobProgressDialog(QtWidgets.QDialog):
         unfinished = self.started_job_names - self.completed_job_names - self.skipped_job_names
         ended_early = processor.batch_cancelled or processor.batch_stopped
         failed = unfinished.intersection(self.job_errors) if ended_early else unfinished
-        interrupted = unfinished - failed
-        stopped = len(interrupted) if processor.batch_stopped else 0
-        cancelled = len(interrupted) if processor.batch_cancelled else 0
         not_started = (len(processor.jobs) - len(self.started_job_names)
                        - len(processor.skipped_jobs) + len(self.skipped_job_names))
         if processor.batch_cancelled:
@@ -343,13 +345,9 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.setWindowTitle(title)
         self.status_label.setText(f"{command}: {title}. Workspace restoration finished.")
         values = {
-            "Queued:": len(processor.jobs),
             "Completed:": len(self.completed_job_names),
             "Failed:": len(failed),
             "Skipped:": len(processor.skipped_jobs),
-            "Stopped:": stopped,
-            "Cancelled:": cancelled,
-            "Not started:": not_started,
         }
         for field, value in values.items():
             self.report_labels[field][1].setText(str(value))
@@ -365,10 +363,6 @@ class JobProgressDialog(QtWidgets.QDialog):
             )])
         if processor.skipped_jobs:
             details.extend(["", "Skipped jobs:", *processor.skipped_jobs])
-        if stopped:
-            details.extend(["", "Stopped jobs:", *sorted(interrupted)])
-        if cancelled:
-            details.extend(["", "Cancelled jobs:", *sorted(interrupted)])
         self.detail_text.setPlainText("\n".join(details))
         self.details_button.show()
         self.is_finished = True

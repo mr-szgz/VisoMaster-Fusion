@@ -181,7 +181,7 @@ def test_job_progress_lifecycle(tmp_path):
                     assert "Workspace restoration finished" in box.status_label.text()
                     summary = command + "\\n" + "\\n".join(
                         f"{field} {box.report_labels[field][1].text()}"
-                        for field in ("Queued:", "Completed:", "Failed:", "Skipped:", "Stopped:", "Cancelled:", "Not started:")
+                        for field in ("Completed:", "Failed:", "Skipped:")
                     ) + box.runtime_label.text()
                     reports.append(box.windowTitle())
                     summaries.append(summary)
@@ -303,14 +303,9 @@ def test_job_progress_lifecycle(tmp_path):
                     assert len(summaries) == 1
                     assert summaries[0].startswith("Process Selected" if selected or similar else "Process All")
                     total = 1 if selected else 2
-                    assert f"Queued: {total}" in summaries[0]
                     assert f"Completed: {total if outcome == 'success' else 0}" in summaries[0]
                     assert "Failed: 0" in summaries[0]
                     assert "Skipped: 0" in summaries[0]
-                    assert f"Stopped: {int(outcome == 'stop')}" in summaries[0]
-                    assert f"Cancelled: {int(outcome == 'cancel')}" in summaries[0]
-                    remaining = total if outcome == "load_failure" else total - 1 if outcome in ("stop", "cancel") else 0
-                    assert f"Not started: {remaining}" in summaries[0]
                     assert restored == [True]
                     assert not active.isChecked() and not active.isCheckable()
                     assert window.buttonProcessAll.text() == "Process All"
@@ -332,7 +327,6 @@ def test_job_progress_lifecycle(tmp_path):
                 window.deleteLater()
                 app.processEvents()
         # Preflight errors are skipped, not double-counted as failed jobs.
-        # A stopped job is separate from jobs never reached in the queue.
         for cancelled in (False, True):
             dialog = JobProgressDialog(None, {})
             dialog.started_job_names = {"Done", "Active"}
@@ -350,16 +344,12 @@ def test_job_progress_lifecycle(tmp_path):
             def check_counts(box):
                 summary = "\\n".join(
                     f"{field} {box.report_labels[field][1].text()}"
-                    for field in ("Queued:", "Completed:", "Failed:", "Skipped:", "Stopped:", "Cancelled:", "Not started:")
+                    for field in ("Completed:", "Failed:", "Skipped:")
                 )
                 details = box.findChild(QtWidgets.QPlainTextEdit).toPlainText()
-                assert "Queued: 4" in summary
                 assert "Completed: 1" in summary
                 assert f"Failed: {0 if cancelled else 1}" in summary
                 assert "Skipped: 1" in summary
-                assert "Stopped: 0" in summary
-                assert f"Cancelled: {int(cancelled)}" in summary
-                assert "Not started: 1" in summary
                 assert "Skipped: Missing media" in details
                 assert "Completed job files:" in details
                 return QtWidgets.QDialog.Accepted
@@ -379,6 +369,55 @@ def test_job_progress_lifecycle(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Traceback" not in result.stderr, result.stderr
     assert "PASS both job commands" in result.stdout
+
+
+def test_job_progress_live_counts(tmp_path):
+    script = textwrap.dedent('''
+        import sys
+        from PySide6 import QtCore, QtWidgets
+        from app.ui.widgets import job_progress_dialog
+        from app.ui.widgets.job_list_widgets import JobDataRole
+
+        app = QtWidgets.QApplication([])
+        job_progress_dialog.settings_group = lambda namespace, parent: QtCore.QSettings(
+            sys.argv[1], QtCore.QSettings.IniFormat, parent
+        )
+        items = {}
+        for name in ("Done", "Skipped", "Failed", "Pending", "Invalid"):
+            item = QtWidgets.QListWidgetItem(name)
+            item.setData(JobDataRole.FrameCountRole, 50)
+            item.setData(JobDataRole.FrameRateRole, 25.0)
+            item.setData(JobDataRole.EmbeddingNamesRole, [])
+            items[name] = item
+        dialog = job_progress_dialog.JobProgressDialog(None, items)
+        def count(field):
+            return int(dialog.report_labels[field + ":"][1].text())
+
+        assert all(field not in dialog.report_labels for field in ("Queued:", "Stopped:", "Cancelled:", "Not started:"))
+        dialog.job_failed("Invalid", "Missing job file")
+        assert count("Failed") == 0
+        dialog.queue_ready(4, 1)
+        assert count("Skipped") == 1
+        dialog.job_started("Done", 1)
+        dialog.job_completed("Done")
+        assert count("Completed") == 1
+        dialog.job_started("Skipped", 2)
+        dialog.job_skipped("Skipped")
+        assert count("Skipped") == 2
+        dialog.job_started("Failed", 3)
+        dialog.job_failed("Failed", "Recording failed")
+        assert count("Failed") == 1
+        assert count("Completed") == 1
+        assert not dialog.is_finished
+        dialog.finish()
+    ''')
+    result = subprocess.run(
+        [sys.executable, "-u", "-c", script, str(tmp_path / "counts.ini")],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_job_progress_eta(tmp_path):
