@@ -1824,7 +1824,7 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
 @pytest.mark.parametrize("clear_skipped", [False, True])
 @pytest.mark.parametrize("auto_skip", [False, True])
 def test_process_batch_images_stop_or_cancel_video_ends_batch(
-    monkeypatch, video_actions_env, save_on_stop, skip, save_skipped, save_partial, clear_skipped, auto_skip
+    monkeypatch, tmp_path, video_actions_env, save_on_stop, skip, save_skipped, save_partial, clear_skipped, auto_skip
 ):
     from app.ui.widgets.actions import job_manager_actions
 
@@ -1839,8 +1839,14 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
         assert mw.video_processor.media_path == media.media_path
         assert media.media_id in mw.target_videos
         saved_media.append(media.media_path)
+        job_name = f"saved_{len(saved_media)}"
+        (tmp_path / f"{job_name}.json").write_text(
+            '{"selected_media_id": "saved-target"}', encoding="utf-8"
+        )
+        return job_name
 
     monkeypatch.setattr(job_manager_actions, "save_default_job", save_skipped_job)
+    monkeypatch.setattr(job_manager_actions, "get_jobs_dir", lambda mw: tmp_path)
     refresh_jobs = MagicMock()
     monkeypatch.setattr(job_manager_actions, "refresh_new_jobs", refresh_jobs)
     _FakeProgressDialog.instances = []
@@ -1990,6 +1996,11 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
         assert record_video.call_count == (0 if auto_skip else 2)
         assert saved_media == (["E:/media/video_1.mp4", "E:/media/video_2.mp4"] if save_skipped else [])
         assert refresh_jobs.call_count == (2 if save_skipped else 0)
+        for index, refresh_call in enumerate(refresh_jobs.call_args_list, 1):
+            assert refresh_call.args == (main_window,)
+            assert refresh_call.kwargs == {
+                "saved_jobs": {f"saved_{index}": {"selected_media_id": "saved-target"}}
+            }
         assert main_window.video_processor.stop_processing.call_count == (0 if auto_skip or save_partial else 2)
         assert main_window.video_processor._finalize_default_style_recording.call_count == (2 if save_partial and not auto_skip else 0)
         assert main_window.targetVideosList.count() == (0 if clear_skipped else 2)

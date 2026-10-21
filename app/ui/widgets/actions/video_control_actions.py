@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, cast
 
 import copy
+import json
 from functools import partial
 import os
 from pathlib import Path
@@ -2922,8 +2923,13 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                 if progress_dialog.save_skipped_checkbox.isChecked():
                     for face_id in (main_window.target_faces if process_all_faces else [main_window.selected_target_face_id]):
                         main_window.parameters[face_id] = main_window.current_widget_parameters.copy()
-                    job_manager_actions.save_default_job(main_window, media_widget)
-                    job_manager_actions.refresh_new_jobs(main_window)
+                    job_name = job_manager_actions.save_default_job(main_window, media_widget)
+                    job_path = job_manager_actions.get_jobs_dir(main_window) / f"{job_name}.json"
+                    with job_path.open(encoding="utf-8") as job_file:
+                        job_data = json.load(job_file)
+                    job_manager_actions.refresh_new_jobs(
+                        main_window, saved_jobs={job_name: job_data}
+                    )
                 if progress_dialog.clear_skipped_checkbox.isChecked():
                     if main_window.selected_video_button is media_widget:
                         main_window.selected_video_button = None
@@ -3243,8 +3249,13 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     if progress_dialog.save_skipped_checkbox.isChecked():
                         for face_id in (main_window.target_faces if process_all_faces else [main_window.selected_target_face_id]):
                             main_window.parameters[face_id] = main_window.current_widget_parameters.copy()
-                        job_manager_actions.save_default_job(main_window, media_widget)
-                        job_manager_actions.refresh_new_jobs(main_window)
+                        job_name = job_manager_actions.save_default_job(main_window, media_widget)
+                        job_path = job_manager_actions.get_jobs_dir(main_window) / f"{job_name}.json"
+                        with job_path.open(encoding="utf-8") as job_file:
+                            job_data = json.load(job_file)
+                        job_manager_actions.refresh_new_jobs(
+                            main_window, saved_jobs={job_name: job_data}
+                        )
                     if progress_dialog.clear_skipped_checkbox.isChecked():
                         if main_window.selected_video_button is media_widget:
                             main_window.selected_video_button = None

@@ -563,6 +563,15 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         assert "Zulu" not in names
         assert queue.item(queue.row(item)) is item
         assert update_buttons.call_count == 6
+        # First skip-save after startup inserts only its job, despite an unloaded queue.
+        queue.clear()
+        namespace["list_jobs"] = MagicMock(side_effect=AssertionError("Must not scan saved jobs"))
+        with patch("builtins.open", side_effect=AssertionError("Must not read other job files")), \
+             patch.object(cv2, "VideoCapture", side_effect=AssertionError("Must not open videos")):
+            namespace["refresh_new_jobs"](mw, saved_jobs={"Skipped": job})
+        assert queue.count() == 1
+        assert queue.item(0).data(widgets.JobDataRole.JobNameRole) == "Skipped"
+        namespace["list_jobs"].assert_not_called()
         path.write_text(json.dumps(job), encoding="utf-8")
     ''')
     result = subprocess.run(
