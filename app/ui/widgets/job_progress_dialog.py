@@ -169,17 +169,20 @@ class JobProgressDialog(QtWidgets.QDialog):
         fps = item.data(JobDataRole.FrameRateRole)
         values = {
             "Embedding:": ", ".join(item.data(JobDataRole.EmbeddingNamesRole)),
-            "Frames:": f"{frames:,}",
+            "Frames:": f"{frames:,}" if frames is not None else "",
         }
         for field, value in values.items():
             self.report_labels[field][1].setText(value)
-        for field in ("Frame rate:", "Length:"):
+        for field, visible in (("Frames:", frames is not None),
+                               ("Frame rate:", fps is not None and fps > 0),
+                               ("Length:", frames is not None and fps is not None and fps > 0)):
             for label in self.report_labels[field]:
-                label.setVisible(fps > 0)
-        if fps > 0:
+                label.setVisible(visible)
+        if fps is not None and fps > 0:
+            self.report_labels["Frame rate:"][1].setText(f"{fps:g} fps")
+        if frames is not None and fps is not None and fps > 0:
             hours, remainder = divmod(int(frames / fps), 3600)
             minutes, seconds = divmod(remainder, 60)
-            self.report_labels["Frame rate:"][1].setText(f"{fps:g} fps")
             self.report_labels["Length:"][1].setText(f"{hours:02}:{minutes:02}:{seconds:02}")
         self.status_label.setText(f"Loading job {index}/{self.total_jobs}: {job_name}")
         self.progressChanged.emit(index, self.total_jobs)

@@ -2738,14 +2738,17 @@ class SaveJobDialog(QtWidgets.QDialog):
         )
         self.restore_selected_face_checkbox.setChecked(restore_selected_face)
 
-        report = [("Frames:", f"{total_frames:,}")]
+        report = []
+        if total_frames is not None:
+            report.append(("Frames:", f"{total_frames:,}"))
         if job_item is not None:
             report.insert(0, ("Embedding:", ", ".join(job_item.data(JobDataRole.EmbeddingNamesRole))))
-        if frame_rate > 0:
+        if frame_rate is not None and frame_rate > 0:
+            report.append(("Frame rate:", f"{frame_rate:g} fps"))
+        if total_frames is not None and frame_rate is not None and frame_rate > 0:
             hours, remainder = divmod(int(total_frames / frame_rate), 3600)
             minutes, seconds = divmod(remainder, 60)
             report.extend([
-                ("Frame rate:", f"{frame_rate:g} fps"),
                 ("Length:", f"{hours:02d}:{minutes:02d}:{seconds:02d}"),
             ])
         self.media_report_layout = QtWidgets.QGridLayout()

@@ -10,6 +10,7 @@ import textwrap
 def test_job_list_widgets_with_real_qt(tmp_path):
     script = textwrap.dedent('''
         import copy
+        import cv2
         import json
         from pathlib import Path
         import sys
@@ -25,7 +26,7 @@ def test_job_list_widgets_with_real_qt(tmp_path):
             "selected_media_id": "target",
             "target_medias_data": [
                 {"media_id": "other", "media_path": "other.mp4"},
-                {"media_id": "target", "media_path": "photo.png"},
+                {"media_id": "target", "media_path": "photo.png", "frame_count": 1, "fps": 0.0},
             ],
             "target_faces_data": {
                 "one": {"assigned_merged_embeddings": ["b", "a"]},
@@ -97,21 +98,18 @@ def test_job_list_widgets_with_real_qt(tmp_path):
             video = copy.deepcopy(job)
             video["target_medias_data"][1]["media_path"] = "selected.mp4"
             path.write_text(json.dumps(video), encoding="utf-8")
-            capture = MagicMock()
-            capture.get.side_effect = [frames, fps]
-            with patch.object(widgets.cv2, "VideoCapture", return_value=capture) as factory:
+            video["target_medias_data"][1].update(frame_count=frames, fps=fps)
+            path.write_text(json.dumps(video), encoding="utf-8")
+            with patch.object(cv2, "VideoCapture", side_effect=AssertionError("Queue must not open media")) as factory:
                 video_item = widgets.JobQueueListWidgetItem(QtCore.QFileInfo(str(path)))
                 video_item.setData(widgets.JobDataRole.JobNameRole, "Saved.job")
                 video_item.setData(QtCore.Qt.ItemDataRole.ToolTipRole, video_item.to_tooltip())
                 assert video_item.toolTip() == "Saved job video" + suffix + " with `Bob`, `Alice` embed names"
-                factory.assert_called_once_with()
-            capture.open.assert_called_once_with("selected.mp4")
-            capture.setExceptionMode.assert_called_once_with(True)
-            capture.release.assert_called_once_with()
+                factory.assert_not_called()
             assert video_item.data(widgets.JobDataRole.FrameCountRole) == frames
             assert video_item.data(widgets.JobDataRole.FrameRateRole) == fps
 
-        # Malformed jobs and media errors remain fail-fast.
+        # Malformed jobs still fail; absent display metadata is optional.
         for contents, error in [("{", json.JSONDecodeError), ("{}", KeyError)]:
             path.write_text(contents, encoding="utf-8")
             try:
@@ -120,16 +118,21 @@ def test_job_list_widgets_with_real_qt(tmp_path):
                 pass
             else:
                 raise AssertionError("Invalid job did not fail")
-        path.write_text(json.dumps(video), encoding="utf-8")
-        capture = MagicMock()
-        capture.open.side_effect = OSError("media unavailable")
-        with patch.object(widgets.cv2, "VideoCapture", return_value=capture):
-            try:
-                widgets.JobQueueListWidgetItem(QtCore.QFileInfo(str(path)))
-            except OSError:
-                pass
-            else:
-                raise AssertionError("Media failure was suppressed")
+        for missing in (("frame_count",), ("fps",), ("frame_count", "fps")):
+            incomplete = copy.deepcopy(video)
+            for field in missing:
+                del incomplete["target_medias_data"][1][field]
+            path.write_text(json.dumps(incomplete), encoding="utf-8")
+            with patch.object(cv2, "VideoCapture", side_effect=AssertionError("No runtime migration")):
+                legacy_item = widgets.JobQueueListWidgetItem(QtCore.QFileInfo(str(path)))
+                legacy_item.setData(widgets.JobDataRole.JobNameRole, "Legacy")
+                assert legacy_item.durationText() == ""
+                assert "(" not in legacy_item.to_tooltip()
+                expected_frames = "" if "frame_count" in missing else "20,100"
+                assert legacy_item.to_label("{job_name} ({duration_text}) [{frames_length}]") == (
+                    "Legacy" if not expected_frames else "Legacy [20,100]"
+                )
+            assert json.loads(path.read_text()) == incomplete
 
         # Selection targets the filename, with Qt ensuring visibility after sorting.
         path.write_text(json.dumps(job), encoding="utf-8")
@@ -159,7 +162,7 @@ def test_job_list_widgets_with_real_qt(tmp_path):
         dialog_node = next(n for n in ast.parse(source.read_text(encoding="utf-8")).body
                            if isinstance(n, ast.ClassDef) and n.name == "SaveJobDialog")
         namespace = dict(QtCore=QtCore, QtGui=QtGui, QtWidgets=QtWidgets,
-                         cv2=widgets.cv2, JobDataRole=widgets.JobDataRole,
+                         cv2=cv2, JobDataRole=widgets.JobDataRole,
                          misc_helpers=SimpleNamespace(get_file_type=widgets.get_file_type))
         exec(compile(ast.Module(body=[dialog_node], type_ignores=[]), str(source), "exec"), namespace)
         Dialog = namespace["SaveJobDialog"]
@@ -170,7 +173,7 @@ def test_job_list_widgets_with_real_qt(tmp_path):
         item.setData(widgets.JobDataRole.FrameCountRole, 20100)
         item.setData(widgets.JobDataRole.FrameRateRole, 25.0)
         item.setData(widgets.JobDataRole.EmbeddingNamesRole, ["Bob", "Alice"])
-        with patch.object(widgets.cv2, "VideoCapture", side_effect=AssertionError("Edit must use roles")):
+        with patch.object(cv2, "VideoCapture", side_effect=AssertionError("Edit must use roles")):
             edit_dialog = Dialog(parent, job_item=item)
         assert edit_dialog.job_name == "Independent job name"
         assert edit_dialog.output_file_name == "saved-output"
@@ -185,6 +188,17 @@ def test_job_list_widgets_with_real_qt(tmp_path):
             assert new_dialog.restore_selected_face is enabled
             assert new_dialog.use_job_name_for_output is True
         assert item.data(widgets.JobDataRole.RestoreSelectedFaceRole) is False
+
+        for frames, fps, expected in ((None, 25.0, ["Embedding:", "Frame rate:"]),
+                                      (20100, None, ["Embedding:", "Frames:"]),
+                                      (None, None, ["Embedding:"])):
+            legacy_item.setData(widgets.JobDataRole.FrameCountRole, frames)
+            legacy_item.setData(widgets.JobDataRole.FrameRateRole, fps)
+            with patch.object(cv2, "VideoCapture", side_effect=AssertionError("No probing on edit")):
+                legacy_dialog = Dialog(parent, job_item=legacy_item)
+            assert [legacy_dialog.media_report_layout.itemAtPosition(r, 0).widget().text()
+                    for r in range(len(expected))] == expected
+            assert legacy_dialog.media_report_layout.count() == len(expected) * 2
 
         # Save the real dialog, then edit through the real persistence function.
         source = Path("app/ui/widgets/actions/job_manager_actions.py")
@@ -366,6 +380,7 @@ def test_real_main_window_job_save_and_edit(tmp_path):
 def test_refresh_new_jobs_with_real_qt(tmp_path):
     script = textwrap.dedent('''
         import copy
+        import cv2
         import json
         from pathlib import Path
         import sys
@@ -381,7 +396,7 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
             "selected_media_id": "target",
             "target_medias_data": [
                 {"media_id": "other", "media_path": "other.mp4"},
-                {"media_id": "target", "media_path": "photo.png"},
+                {"media_id": "target", "media_path": "photo.png", "frame_count": 1, "fps": 0.0},
             ],
             "target_faces_data": {
                 "one": {"assigned_merged_embeddings": ["b", "a"]},
@@ -434,7 +449,7 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         path.write_text("invalid json", encoding="utf-8")
         for name in ("Zulu", "Alpha"):
             (root / f"{name}.json").write_text(json.dumps(job), encoding="utf-8")
-        with patch.object(widgets.cv2, "VideoCapture") as capture:
+        with patch.object(cv2, "VideoCapture") as capture:
             namespace["refresh_new_jobs"](mw)
             capture.assert_not_called()
         assert factory.call_count == 2
@@ -477,7 +492,7 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         (root / "Alpha.json").unlink()
         (root / "Zulu.json").unlink()
         selected_item = queue.currentItem()
-        with patch.object(widgets.cv2, "VideoCapture") as capture:
+        with patch.object(cv2, "VideoCapture") as capture:
             namespace["refresh_new_jobs"](mw, saved_jobs=saved_jobs)
             capture.assert_not_called()
         directory_scan.assert_not_called()
@@ -490,7 +505,7 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         (root / f"{new_names[-1]}.json").unlink()
         (root / "New.json").write_text(json.dumps(job), encoding="utf-8")
         namespace["list_jobs"] = lambda mw: [p.stem for p in root.glob("*.json")]
-        with patch.object(widgets.cv2, "VideoCapture") as capture:
+        with patch.object(cv2, "VideoCapture") as capture:
             namespace["refresh_new_jobs"](mw)
             capture.assert_not_called()
         assert factory.call_count == 253
@@ -511,5 +526,74 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         capture_output=True,
         text=True,
         timeout=90,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_job_manager_startup_waits_for_explicit_refresh(tmp_path):
+    script = textwrap.dedent("""
+        import json
+        import sys
+        from pathlib import Path
+        from unittest.mock import patch
+        from PySide6 import QtCore, QtWidgets
+        from app.ui.core.main_window import Ui_MainWindow
+        from app.ui.widgets.actions import job_manager_actions as actions
+
+        app = QtWidgets.QApplication([])
+        root = Path(sys.argv[1])
+        jobs = root / "jobs"
+        jobs.mkdir()
+        job_path = jobs / "Legacy.json"
+        data = {
+            "use_job_name_for_output": True, "output_file_name": None,
+            "restore_selected_face": False, "selected_media_id": "target",
+            "target_medias_data": [{"media_id": "target", "media_path": "missing.mp4"}],
+            "target_faces_data": {}, "embeddings_data": {},
+        }
+        job_path.write_text(json.dumps(data), encoding="utf-8")
+        original = job_path.read_bytes()
+        class Window(QtWidgets.QMainWindow, Ui_MainWindow):
+            def __init__(self):
+                super().__init__()
+                self.setupUi(self)
+                self.jobQueueList.clear()
+                self.project_root_path = root
+        window = Window()
+        def settings(namespace, parent):
+            return QtCore.QSettings(str(root / "test.ini"), QtCore.QSettings.IniFormat, parent)
+        with patch.object(actions, "settings_group", side_effect=settings), \
+             patch.object(actions, "list_jobs", side_effect=AssertionError("Startup enumerated jobs")), \
+             patch.object(actions, "JobQueueListWidgetItem", side_effect=AssertionError("Startup read a job")):
+            actions.setup_job_manager_ui(window)
+            window.show()
+            app.processEvents()
+        assert window.jobQueueList.count() == 0
+        placeholder = next(label for label in window.jobQueueList.findChildren(QtWidgets.QLabel)
+                           if label.text() == "Refresh to load jobs.")
+        assert not placeholder.isHidden()
+        assert not window.buttonProcessAll.isEnabled()
+        assert not window.buttonProcessSelected.isEnabled()
+        assert not window.buttonProcessAllSimilar.isEnabled()
+        with patch.object(actions.cv2, "VideoCapture", side_effect=AssertionError("Refresh opened media")):
+            window.refreshJobListButton.click()
+        assert window.jobQueueList.count() == 1
+        assert window.jobQueueList.item(0).data(actions.JobDataRole.JobNameRole) == "Legacy"
+        assert placeholder.isHidden()
+        assert window.buttonProcessAll.isEnabled()
+        assert job_path.read_bytes() == original
+        # Empty explicit refresh does not leave a selectable placeholder job.
+        with patch.object(actions, "list_jobs", return_value=[]):
+            window.refreshJobListButton.click()
+        assert window.jobQueueList.count() == 0
+        assert not window.buttonProcessAll.isEnabled()
+        assert placeholder.isHidden()
+        window.close()
+    """)
+    result = subprocess.run(
+        [sys.executable, "-u", "-c", script, str(tmp_path)],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+        capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr

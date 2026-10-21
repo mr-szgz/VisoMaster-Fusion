@@ -590,3 +590,58 @@ def test_similarity_clusters_and_processing_selection(tmp_path, theme, scale):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Traceback" not in result.stderr, result.stderr
     assert "PASS cluster review and handoff" in result.stdout
+
+
+def test_similarity_optional_media_metadata(tmp_path):
+    script = textwrap.dedent("""
+        import sys
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+        from PySide6 import QtCore, QtWidgets
+        from app.ui.widgets import job_similarity_dialog as similarity
+        from app.ui.widgets.job_list_widgets import JobDataRole as Role
+
+        app = QtWidgets.QApplication([])
+        root = Path(sys.argv[1])
+        similarity.settings_group = lambda namespace, parent: QtCore.QSettings(
+            str(root / "optional.ini"), QtCore.QSettings.IniFormat, parent)
+        window = QtWidgets.QWidget()
+        window.project_root_path = root
+        window.jobQueueList = QtWidgets.QListWidget(window)
+        names = ["known", "no_frames", "no_fps", "neither"]
+        for name, frames, fps in zip(names, [1800, None, 1800, None], [30.0, 30.0, None, None]):
+            item = QtWidgets.QListWidgetItem(name, window.jobQueueList)
+            for role, value in ((Role.JobNameRole, name), (Role.MediaTypeRole, "video"),
+                                (Role.EmbeddingNamesRole, []), (Role.FrameCountRole, frames),
+                                (Role.FrameRateRole, fps)):
+                item.setData(role, value)
+        dialog = similarity.JobSimilarityDialog(window, names)
+        assert dialog.job_details["known"][1] == 60
+        assert all(dialog.job_details[name][1] is None for name in names[1:])
+        dialog.clusters = [dict(id=1, jobs=names, representative_job="known",
+                                configuration={"parameters": [{"SwapModelSelection": "Model"}]})]
+        dialog.show_clusters()
+        assert dialog.items[1].text(4) == dialog.items[1].text(5) == ""
+        assert dialog.items[1].childCount() == 4
+        dialog.items[1].setCheckState(0, QtCore.Qt.Checked)
+        assert dialog.selected_jobs() == names
+        with patch.object(similarity, "JobSimilarityWorker", return_value=MagicMock()) as worker:
+            dialog.check_jobs()
+            assert worker.call_args.args[1] == names
+            dialog.minimum_length.setText("00:00:01")
+            dialog.minimum_length_checkbox.setChecked(True)
+            dialog.check_jobs()
+            assert worker.call_args.args[1] == ["known"]
+            dialog.minimum_length_checkbox.setChecked(False)
+            dialog.maximum_length.setText("00:02:00")
+            dialog.maximum_length_checkbox.setChecked(True)
+            dialog.check_jobs()
+            assert worker.call_args.args[1] == ["known"]
+    """)
+    result = subprocess.run(
+        [sys.executable, "-u", "-c", script, str(tmp_path)],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

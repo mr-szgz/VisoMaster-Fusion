@@ -259,7 +259,7 @@ def test_batch_save_jobs_dialog_with_real_qt(tmp_path, remove_completed):
                 )
                 for i, data in enumerate(saved.values()):
                     assert data["selected_media_id"] == str(i)
-                    assert data["target_medias_data"] == [{"media_id": str(i), "media_path": "sample.png"}]
+                    assert data["target_medias_data"] == [{"media_id": str(i), "media_path": "sample.png", "frame_count": 1, "fps": 0.0}]
                     assert data["restore_selected_face"] is True
                     assert data["use_job_name_for_output"] is True
                     assert data["output_file_name"] is None

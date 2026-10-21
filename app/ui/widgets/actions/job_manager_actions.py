@@ -1,4 +1,5 @@
 import json
+import cv2
 from pathlib import Path
 import copy
 from functools import partial
@@ -1342,6 +1343,21 @@ def save_job_workspace(
         ]
         workspace_data["selected_media_id"] = target_media.media_id
 
+    target = next(
+        media for media in workspace_data["target_medias_data"]
+        if media["media_id"] == workspace_data["selected_media_id"]
+    )
+    if misc_helpers.get_file_type(target["media_path"]) == "image":
+        target["frame_count"] = 1
+        target["fps"] = 0.0
+    else:
+        capture = cv2.VideoCapture()
+        capture.setExceptionMode(True)
+        capture.open(target["media_path"])
+        target["frame_count"] = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        target["fps"] = capture.get(cv2.CAP_PROP_FPS)
+        capture.release()
+
     # Add job-specific output settings
     if dialog is None:
         workspace_data["use_job_name_for_output"] = True
@@ -1451,7 +1467,7 @@ def cancel_processing_jobs(main_window: "MainWindow"):
 
 
 def setup_job_manager_ui(main_window: "MainWindow"):
-    """Initialize UI widgets, connect signals, and refresh the job list."""
+    """Initialize the empty queue; saved jobs load on explicit refresh."""
     # Find all child widgets related to the Job Manager dock
     main_window.addJobButton = main_window.findChild(
         QtWidgets.QPushButton, "addJobButton"
@@ -1500,13 +1516,19 @@ def setup_job_manager_ui(main_window: "MainWindow"):
     # Connect signals to slots
     connect_job_manager_signals(main_window)
 
-    # Initial population and state update
+    # Keep startup independent of saved job contents.
     main_window.job_processor = None
     main_window.job_progress_dialog = None
     main_window.job_processing_button = None
     main_window.job_similarity_dialog = None
     main_window.job_similarity_button = None
-    refresh_job_list(main_window)
+    placeholder = QtWidgets.QLabel("Refresh to load jobs.", main_window.jobQueueList)
+    placeholder.setAttribute(Qt.WA_TransparentForMouseEvents)
+    layout = QtWidgets.QVBoxLayout(main_window.jobQueueList)
+    layout.addWidget(placeholder)
+    layout.setAlignment(Qt.AlignCenter)
+    main_window.jobQueueList.model().rowsInserted.connect(lambda: placeholder.hide())
+    main_window.jobQueueList.model().modelReset.connect(placeholder.hide)
     update_job_manager_buttons(main_window)
 
 

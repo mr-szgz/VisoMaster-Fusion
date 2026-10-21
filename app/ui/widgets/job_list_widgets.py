@@ -2,7 +2,6 @@ import enum
 import json
 import re
 
-import cv2
 from PySide6 import QtCore, QtWidgets
 
 from app.helpers.miscellaneous import get_file_type
@@ -55,25 +54,18 @@ class JobQueueListWidgetItem(QtWidgets.QListWidgetItem):
             job_data["embeddings_data"][embedding_id]["embedding_name"]
             for embedding_id in embedding_ids
         ])
-        if self.data(JobDataRole.MediaTypeRole) == "image":
-            self.setData(JobDataRole.FrameCountRole, 1)
-            self.setData(JobDataRole.FrameRateRole, 0.0)
-        else:
-            capture = cv2.VideoCapture()
-            capture.setExceptionMode(True)
-            capture.open(self.data(JobDataRole.TargetMediaPathRole))
-            self.setData(JobDataRole.FrameCountRole, int(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
-            self.setData(JobDataRole.FrameRateRole, capture.get(cv2.CAP_PROP_FPS))
-            capture.release()
+        self.setData(JobDataRole.FrameCountRole, target.get("frame_count"))
+        self.setData(JobDataRole.FrameRateRole, target.get("fps"))
 
     def to_label(self, label_tpl: str) -> str:
         job_name = self.data(JobDataRole.JobNameRole)
         embedding_names = ', '.join(self.data(JobDataRole.EmbeddingNamesRole))
+        frames = self.data(JobDataRole.FrameCountRole)
         label_out = label_tpl.format(
             job_name=job_name,
             embedding_names=embedding_names,
             duration_text=self.durationText(),
-            frames_length=f"{self.data(JobDataRole.FrameCountRole):,}",
+            frames_length=f"{frames:,}" if frames is not None else "",
         ).strip()
 
         # remove empty parentheticals like "()"
@@ -102,8 +94,9 @@ class JobQueueListWidgetItem(QtWidgets.QListWidgetItem):
 
     def durationText(self) -> str:
         frame_rate = self.data(JobDataRole.FrameRateRole)
-        if self.data(JobDataRole.MediaTypeRole) != "video" or frame_rate <= 0:
+        frames = self.data(JobDataRole.FrameCountRole)
+        if self.data(JobDataRole.MediaTypeRole) != "video" or frame_rate is None or frames is None or frame_rate <= 0:
             return ""
-        hours, remainder = divmod(int(self.data(JobDataRole.FrameCountRole) / frame_rate), 3600)
+        hours, remainder = divmod(int(frames / frame_rate), 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}" or ""

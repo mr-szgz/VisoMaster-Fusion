@@ -436,6 +436,18 @@ def test_job_progress_eta(tmp_path):
         assert progress.geometry().right() < dialog.eta_label.x()
         assert progress.geometry().center().y() == dialog.eta_label.geometry().center().y()
         assert dialog.eta_label.geometry().right() < dialog.width()
+        for frames, fps in ((None, 25.0), (50, None), (None, None)):
+            item.setData(JobDataRole.FrameCountRole, frames)
+            item.setData(JobDataRole.FrameRateRole, fps)
+            dialog.job_started("A", 1)
+            assert dialog.report_labels["Frames:"][0].isHidden() == (frames is None)
+            assert dialog.report_labels["Frame rate:"][0].isHidden() == (fps is None)
+            assert dialog.report_labels["Length:"][0].isHidden()
+            dialog.processing_started()
+            dialog.frame_processed()
+            dialog.update_runtime()
+            assert dialog.report_labels["Item progress:"][1].text() == "50.0%"
+            dialog.processing_stopped()
         dialog.finish()
     ''')
     result = subprocess.run(

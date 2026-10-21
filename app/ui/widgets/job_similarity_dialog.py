@@ -50,9 +50,13 @@ class JobSimilarityDialog(QtWidgets.QDialog):
                 seconds = (
                     item.data(JobDataRole.FrameCountRole) / frame_rate
                     if item.data(JobDataRole.MediaTypeRole) == "video"
+                    and frame_rate is not None
+                    and item.data(JobDataRole.FrameCountRole) is not None
                     and frame_rate > 0
                     else 0
                 )
+                if frame_rate is None or item.data(JobDataRole.FrameCountRole) is None:
+                    seconds = None
                 self.job_details[job] = (
                     item.data(JobDataRole.EmbeddingNamesRole),
                     seconds,
@@ -252,8 +256,8 @@ class JobSimilarityDialog(QtWidgets.QDialog):
                 not self.job_details[job][0]
                 or selected_embeddings.intersection(self.job_details[job][0])
             )
-            and (minimum_seconds is None or self.job_details[job][1] >= minimum_seconds)
-            and (maximum_seconds is None or self.job_details[job][1] <= maximum_seconds)
+            and (minimum_seconds is None or (self.job_details[job][1] is not None and self.job_details[job][1] >= minimum_seconds))
+            and (maximum_seconds is None or (self.job_details[job][1] is not None and self.job_details[job][1] <= maximum_seconds))
         ]
         self.checking = True
         self.clusters = []
@@ -311,13 +315,17 @@ class JobSimilarityDialog(QtWidgets.QDialog):
                     name for job in cluster["jobs"] for name in self.job_details[job][0]
                 )
             )
-            total_seconds = sum(self.job_details[job][1] for job in cluster["jobs"])
-            average_hours, remainder = divmod(
-                int(total_seconds / len(cluster["jobs"])), 3600
-            )
-            average_minutes, average_seconds = divmod(remainder, 60)
-            hours, remainder = divmod(int(total_seconds), 3600)
-            minutes, seconds = divmod(remainder, 60)
+            total_text = average_text = ""
+            if all(self.job_details[job][1] is not None for job in cluster["jobs"]):
+                total_seconds = sum(self.job_details[job][1] for job in cluster["jobs"])
+                average_hours, remainder = divmod(
+                    int(total_seconds / len(cluster["jobs"])), 3600
+                )
+                average_minutes, average_seconds = divmod(remainder, 60)
+                hours, remainder = divmod(int(total_seconds), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                total_text = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                average_text = f"{average_hours:02d}:{average_minutes:02d}:{average_seconds:02d}"
             models = ", ".join(
                 dict.fromkeys(
                     parameters["SwapModelSelection"]
@@ -330,8 +338,8 @@ class JobSimilarityDialog(QtWidgets.QDialog):
                     str(len(cluster["jobs"])),
                     cluster["representative_job"],
                     embedding_names,
-                    f"{hours:02d}:{minutes:02d}:{seconds:02d}",
-                    f"{average_hours:02d}:{average_minutes:02d}:{average_seconds:02d}",
+                    total_text,
+                    average_text,
                     models,
                 ]
             )

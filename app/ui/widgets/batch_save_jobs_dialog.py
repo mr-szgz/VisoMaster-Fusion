@@ -1,10 +1,12 @@
 import json
+import cv2
 from functools import partial
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from app.settings import settings_group
+from app.helpers.miscellaneous import get_file_type
 
 
 class BatchSaveJobsDialog(QtWidgets.QDialog):
@@ -237,6 +239,17 @@ class BatchSaveJobsDialog(QtWidgets.QDialog):
                     {"media_id": media.media_id, "media_path": media.media_path}
                 ]
                 workspace["selected_media_id"] = media.media_id
+                target = workspace["target_medias_data"][0]
+                if get_file_type(target["media_path"]) == "image":
+                    target["frame_count"] = 1
+                    target["fps"] = 0.0
+                else:
+                    capture = cv2.VideoCapture()
+                    capture.setExceptionMode(True)
+                    capture.open(target["media_path"])
+                    target["frame_count"] = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+                    target["fps"] = capture.get(cv2.CAP_PROP_FPS)
+                    capture.release()
                 # Only completed JSON files become visible to the job queue.
                 pending_path = job_path.with_suffix(".json.part")
                 checkpoint = QtCore.QElapsedTimer()
