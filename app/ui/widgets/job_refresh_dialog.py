@@ -1,7 +1,11 @@
 import json
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 from PySide6 import QtCore, QtWidgets
 
+from app.settings import settings_group
 from app.ui.widgets.job_list_widgets import JobDataRole, JobQueueListWidgetItem
 
 
@@ -10,9 +14,10 @@ class JobRefreshWorker(QtCore.QThread):
     job_loaded = QtCore.Signal(str, object)
     existing_checked = QtCore.Signal(str, bool)
 
-    def __init__(self, jobs_dir, parent, existing_names=()):
+    def __init__(self, jobs_dir, parent, existing_names=(), worker_count=4):
         super().__init__(parent)
         self.jobs_dir = jobs_dir
+        self.worker_count = worker_count
         self.item_added = QtCore.QSemaphore()
         self.existing_names = set(existing_names)
 
@@ -20,23 +25,37 @@ class JobRefreshWorker(QtCore.QThread):
         paths = list(self.jobs_dir.glob("*.json"))
         paths = [path for path in paths if path.stem not in self.existing_names]
         self.scan_started.emit(len(paths) + len(self.existing_names))
-        for job_name in self.existing_names:
-            if self.isInterruptionRequested():
-                return
-            exists = (self.jobs_dir / f"{job_name}.json").exists()
-            self.existing_checked.emit(job_name, exists)
-            self.item_added.acquire()
-        for path in paths:
-            if self.isInterruptionRequested():
-                break
-            with open(path, encoding="utf-8") as job_file:
-                data = json.load(job_file)
-            item = JobQueueListWidgetItem(QtCore.QFileInfo(str(path)), data)
-            if self.isInterruptionRequested():
-                break
-            self.job_loaded.emit(path.stem, item)
-            # Keep only one pending job payload while the UI inserts its row.
-            self.item_added.acquire()
+        with ThreadPoolExecutor(max_workers=self.worker_count) as executor:
+            for inputs, task, signal in (
+                (list(self.existing_names), self.check_existing, self.existing_checked),
+                (paths, self.load_job, self.job_loaded),
+            ):
+                pending = deque()
+                submitted = 0
+                while pending or submitted < len(inputs):
+                    if self.isInterruptionRequested():
+                        for future in pending:
+                            future.cancel()
+                        for future in pending:
+                            if not future.cancelled():
+                                future.result()
+                        return
+                    while len(pending) < self.worker_count and submitted < len(inputs):
+                        pending.append(executor.submit(task, inputs[submitted]))
+                        submitted += 1
+                    result = pending.popleft().result()
+                    if not self.isInterruptionRequested():
+                        signal.emit(*result)
+                        # Only the coordinator waits for GUI insertion; pool tasks keep reading.
+                        self.item_added.acquire()
+
+    def check_existing(self, job_name):
+        return job_name, (self.jobs_dir / f"{job_name}.json").exists()
+
+    def load_job(self, path):
+        with open(path, encoding="utf-8") as job_file:
+            data = json.load(job_file)
+        return path.stem, JobQueueListWidgetItem(QtCore.QFileInfo(str(path)), data)
 
 
 class JobRefreshDialog(QtWidgets.QDialog):
@@ -47,43 +66,83 @@ class JobRefreshDialog(QtWidgets.QDialog):
         self.main_window = main_window
         self.selected_job_name = selected_job_name
         self.cancelled = False
+        self.started = False
+        self.stop_requested = False
+        self.preserve_existing = preserve_existing
         self.loaded_count = 0
         self.checked_count = 0
-        self.existing_items = {
-            main_window.jobQueueList.item(index).data(JobDataRole.JobNameRole):
-                main_window.jobQueueList.item(index)
-            for index in range(main_window.jobQueueList.count())
-        } if preserve_existing else {}
+        self.existing_items = {}
         self.setWindowTitle("Loading Jobs")
         self.setMinimumWidth(380)
         layout = QtWidgets.QVBoxLayout(self)
-        self.status_label = QtWidgets.QLabel("Scanning saved jobs…", self)
+        options = QtWidgets.QFormLayout()
+        self.worker_threads_spinbox = QtWidgets.QSpinBox(self)
+        self.worker_threads_spinbox.setRange(1, 64)
+        self.worker_threads_spinbox.setValue(4)
+        self.dialog_settings = settings_group("Dialogs/JobRefresh", self)
+        if self.dialog_settings.contains("worker_threads"):
+            self.worker_threads_spinbox.setValue(
+                self.dialog_settings.value("worker_threads", type=int)
+            )
+        self.worker_threads_spinbox.valueChanged.connect(
+            partial(self.dialog_settings.setValue, "worker_threads")
+        )
+        options.addRow("Worker threads:", self.worker_threads_spinbox)
+        layout.addLayout(options)
+        self.status_label = QtWidgets.QLabel("Choose worker threads, then start refresh.", self)
         self.status_label.setTextFormat(QtCore.Qt.PlainText)
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
         self.progress_bar = QtWidgets.QProgressBar(self)
-        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setRange(0, 1)
         self.progress_bar.setFormat("%v / %m jobs loaded")
         if preserve_existing:
             self.setWindowTitle("Checking for Jobs")
             self.progress_bar.setFormat("%v / %m jobs checked")
         layout.addWidget(self.progress_bar)
+        self.start_button = QtWidgets.QPushButton("Start refresh", self)
+        self.start_button.clicked.connect(self.start_scan)
+        layout.addWidget(self.start_button)
+        buttons = QtWidgets.QHBoxLayout()
+        self.stop_button = QtWidgets.QPushButton("Stop", self)
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(self.stop_scan)
+        buttons.addWidget(self.stop_button)
         self.cancel_button = QtWidgets.QPushButton("Cancel", self)
         self.cancel_button.clicked.connect(self.reject)
-        layout.addWidget(self.cancel_button)
+        buttons.addWidget(self.cancel_button)
+        layout.addLayout(buttons)
         self.worker = JobRefreshWorker(jobs_dir, self, self.existing_items)
         self.worker.scan_started.connect(self.scan_started)
         self.worker.job_loaded.connect(self.add_job)
         self.worker.existing_checked.connect(self.check_existing)
         self.worker.finished.connect(self.scan_finished)
-        QtCore.QTimer.singleShot(0, self.start_scan)
 
     @QtCore.Slot()
     def start_scan(self):
-        if self.cancelled:
-            self.scan_finished()
-        else:
-            self.worker.start()
+        self.started = True
+        self.stop_requested = False
+        self.loaded_count = 0
+        self.checked_count = 0
+        self.existing_items = {
+            self.main_window.jobQueueList.item(index).data(JobDataRole.JobNameRole):
+                self.main_window.jobQueueList.item(index)
+            for index in range(self.main_window.jobQueueList.count())
+        } if self.preserve_existing else {}
+        self.worker.existing_names = set(self.existing_items)
+        self.stop_button.setEnabled(True)
+        self.start_button.setEnabled(False)
+        self.worker_threads_spinbox.setEnabled(False)
+        self.worker.worker_count = self.worker_threads_spinbox.value()
+        if not self.preserve_existing:
+            self.main_window.jobQueueList.clear()
+        self.progress_bar.setRange(0, 0)
+        mode = "checked" if self.preserve_existing else "loaded"
+        self.progress_bar.setFormat(
+            f"%v / %m jobs {mode} · {self.worker.worker_count} worker threads"
+        )
+        self.status_label.setText("Scanning saved jobs…")
+        self.worker.start()
 
     @QtCore.Slot(int)
     def scan_started(self, count):
@@ -92,7 +151,7 @@ class JobRefreshDialog(QtWidgets.QDialog):
 
     @QtCore.Slot(str, object)
     def add_job(self, job_name, item):
-        if not self.cancelled:
+        if not self.cancelled and not self.stop_requested:
             item.setData(JobDataRole.JobNameRole, job_name)
             item.setText(item.to_label(self.main_window.jobListLabelTemplateComboBox.currentText()))
             item.setToolTip(item.to_tooltip())
@@ -112,7 +171,7 @@ class JobRefreshDialog(QtWidgets.QDialog):
 
     @QtCore.Slot(str, bool)
     def check_existing(self, job_name, exists):
-        if not self.cancelled:
+        if not self.cancelled and not self.stop_requested:
             item = self.existing_items[job_name]
             job_list = self.main_window.jobQueueList
             if not exists:
@@ -126,14 +185,32 @@ class JobRefreshDialog(QtWidgets.QDialog):
         self.worker.item_added.release()
 
     @QtCore.Slot()
+    def stop_scan(self):
+        self.stop_requested = True
+        self.worker.requestInterruption()
+        self.stop_button.setEnabled(False)
+        self.status_label.setText("Stopping after active file operations finish…")
+
+    @QtCore.Slot()
     def scan_finished(self):
-        self.done(QtWidgets.QDialog.Rejected if self.cancelled else QtWidgets.QDialog.Accepted)
+        self.started = False
+        self.stop_button.setEnabled(False)
+        if self.stop_requested and not self.cancelled:
+            self.start_button.setEnabled(True)
+            self.worker_threads_spinbox.setEnabled(True)
+            self.status_label.setText("Stopped. Click Start refresh to run again.")
+        else:
+            self.done(QtWidgets.QDialog.Rejected if self.cancelled else QtWidgets.QDialog.Accepted)
 
     def reject(self):
         self.cancelled = True
+        if not self.started:
+            self.scan_finished()
+            return
         self.worker.requestInterruption()
         self.cancel_button.setEnabled(False)
-        self.status_label.setText("Cancelling after the current file read…")
+        self.stop_button.setEnabled(False)
+        self.status_label.setText("Cancelling after active file operations finish…")
 
     def closeEvent(self, event):
         event.ignore()

@@ -1854,7 +1854,6 @@ def refresh_job_list(main_window: "MainWindow", selected_job_name: str | None = 
     from app.ui.widgets.job_refresh_dialog import JobRefreshDialog
 
     if main_window.jobQueueList:
-        main_window.jobQueueList.clear()
         dialog = JobRefreshDialog(main_window, get_jobs_dir(main_window), selected_job_name)
         dialog.exec()
         dialog.deleteLater()
@@ -2564,6 +2563,19 @@ class JobProcessor(QThread):
         serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
+    def _iter_checked_jobs(self):
+        for job_name in self.jobs:
+            if self.isInterruptionRequested():
+                break
+            self.analysis_started_signal.emit(job_name)
+            data = self._read_job_file(job_name)
+            if self.isInterruptionRequested():
+                break
+            valid, reason = _validate_job_files_exist(data) if data is not None else (False, None)
+            if self.isInterruptionRequested():
+                break
+            yield job_name, data, valid, reason
+
     def _analyze_job_batch(self) -> Optional[MasterData]:
         """
         (SMART ANALYSIS & VALIDATION) Reads all job JSONs in the batch.
@@ -2587,13 +2599,7 @@ class JobProcessor(QThread):
         valid_job_data_list = []  # List for jobs that pass validation
         self.skipped_jobs.clear()  # Clear skipped list for this batch
 
-        for job_name in self.jobs:
-            if self.isInterruptionRequested():
-                break
-            self.analysis_started_signal.emit(job_name)
-            data = self._read_job_file(job_name)
-            if self.isInterruptionRequested():
-                break
+        for job_name, data, is_job_valid, skip_reason in self._iter_checked_jobs():
             if data is None:
                 # _read_job_file already emitted a failure signal, but we also
                 # add it to the skipped list for the final report.
@@ -2604,12 +2610,6 @@ class JobProcessor(QThread):
                     job_name, "Job file could not be read or parsed."
                 )
                 continue  # Skip to the next job
-
-            # --- 1. Validate the entire job FIRST ---
-            # Use the new, centralized validation function
-            is_job_valid, skip_reason = _validate_job_files_exist(data)
-            if self.isInterruptionRequested():
-                break
 
             if not is_job_valid:
                 print(f"[WARN] Skipping job '{job_name}'. Reason: {skip_reason}")

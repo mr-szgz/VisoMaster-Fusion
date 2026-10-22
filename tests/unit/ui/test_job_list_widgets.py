@@ -312,6 +312,7 @@ def test_real_main_window_job_save_and_edit(tmp_path):
                     for r in range(3)] == ["50", "25 fps", "00:00:02"]
             dialog.restore_selected_face_checkbox.setChecked(False)
             actions.save_job(window, dialog)
+            QtCore.QTimer.singleShot(0, lambda: app.activeModalWidget().start_button.click())
             actions.refresh_job_list(window, selected_job_name="Created")
             item = window.jobQueueList.currentItem()
             assert item.isSelected()
@@ -325,6 +326,7 @@ def test_real_main_window_job_save_and_edit(tmp_path):
             del saved["restore_selected_face"]
             saved["control"]["ClusterOutputBySourceToggle"] = False
             (jobs / "Created.json").write_text(json.dumps(saved))
+            QtCore.QTimer.singleShot(0, lambda: app.activeModalWidget().start_button.click())
             actions.refresh_job_list(window, selected_job_name="Created")
             item = window.jobQueueList.currentItem()
             assert json.loads((jobs / "Created.json").read_text()) == saved
@@ -392,11 +394,13 @@ def test_real_main_window_job_save_and_edit(tmp_path):
             assert not item.isHidden()
             # Both refresh paths preserve the active search, including newly saved jobs.
             (jobs / "Other.json").write_text(json.dumps(updated))
+            QtCore.QTimer.singleShot(0, lambda: app.activeModalWidget().start_button.click())
             actions.refresh_new_jobs(window, selected_job_name="Other")
             other = window.jobQueueList.currentItem()
             assert other.isHidden()
             assert not other.isSelected()
             assert not item.isHidden()
+            QtCore.QTimer.singleShot(0, lambda: app.activeModalWidget().start_button.click())
             actions.refresh_job_list(window, selected_job_name="Other")
             assert window.jobQueueList.currentItem().isHidden()
             assert actions.get_selected_jobs(window) == []
@@ -502,12 +506,14 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         for name in ("Zulu", "Alpha"):
             (root / f"{name}.json").write_text(json.dumps(job), encoding="utf-8")
         with patch.object(cv2, "VideoCapture") as capture:
+            QtCore.QTimer.singleShot(0, lambda: app.activeModalWidget().start_button.click())
             namespace["refresh_new_jobs"](mw)
             capture.assert_not_called()
         assert factory.call_count == 2
         assert queue.item(1) is item
         assert queue.currentItem() is item
         assert [queue.item(i).text() for i in range(queue.count())] == ["Alpha", "Saved.job", "Zulu"]
+        QtCore.QTimer.singleShot(0, lambda: app.activeModalWidget().start_button.click())
         namespace["refresh_new_jobs"](mw, selected_job_name="Alpha")
         assert factory.call_count == 2
         assert queue.currentItem().text() == "Alpha"
@@ -558,6 +564,7 @@ def test_refresh_new_jobs_with_real_qt(tmp_path):
         (root / "New.json").write_text(json.dumps(job), encoding="utf-8")
         namespace["list_jobs"] = lambda mw: [p.stem for p in root.glob("*.json")]
         with patch.object(cv2, "VideoCapture") as capture:
+            QtCore.QTimer.singleShot(0, lambda: app.activeModalWidget().start_button.click())
             namespace["refresh_new_jobs"](mw)
             capture.assert_not_called()
         assert factory.call_count == 253
@@ -637,6 +644,7 @@ def test_job_manager_startup_waits_for_explicit_refresh(tmp_path):
         assert not window.buttonProcessSelected.isEnabled()
         assert not window.buttonProcessAllSimilar.isEnabled()
         with patch.object(actions.cv2, "VideoCapture", side_effect=AssertionError("Refresh opened media")):
+            QtCore.QTimer.singleShot(0, lambda: app.activeModalWidget().start_button.click())
             window.refreshJobListButton.click()
         assert window.jobQueueList.count() == 1
         assert window.jobQueueList.item(0).data(actions.JobDataRole.JobNameRole) == "Legacy"
@@ -647,6 +655,7 @@ def test_job_manager_startup_waits_for_explicit_refresh(tmp_path):
         empty_jobs = root / "empty-jobs"
         empty_jobs.mkdir()
         with patch.object(actions, "get_jobs_dir", return_value=empty_jobs):
+            QtCore.QTimer.singleShot(0, lambda: app.activeModalWidget().start_button.click())
             window.refreshJobListButton.click()
         assert window.jobQueueList.count() == 0
         assert not window.buttonProcessAll.isEnabled()
