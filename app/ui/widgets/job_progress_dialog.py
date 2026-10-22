@@ -13,6 +13,7 @@ class JobProgressDialog(QtWidgets.QDialog):
     stopRequested = QtCore.Signal()
     cancelRequested = QtCore.Signal()
     skipRequested = QtCore.Signal(bool)
+    skipAndUpdateRequested = QtCore.Signal(bool)
 
     def __init__(self, parent, job_items):
         super().__init__(parent)
@@ -102,6 +103,9 @@ class JobProgressDialog(QtWidgets.QDialog):
         )
         layout.addWidget(self.save_partial_on_skip_checkbox)
         self.stop_after_processing_row = QtWidgets.QWidget(self)
+        self.stop_after_processing_row.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+        )
         stop_limit_layout = QtWidgets.QHBoxLayout(self.stop_after_processing_row)
         stop_limit_layout.setContentsMargins(0, 0, 0, 0)
         self.stop_after_processing_checkbox = QtWidgets.QCheckBox("Stop after processing", self.stop_after_processing_row)
@@ -145,6 +149,14 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.runtime_label = QtWidgets.QLabel("Runtime: 00:00:00", self)
         buttons.addWidget(self.runtime_label)
         buttons.addStretch()
+        self.skip_update_button = QtWidgets.QPushButton("Skip and update job", self)
+        self.skip_update_button.setAutoDefault(False)
+        self.skip_update_button.setEnabled(False)
+        self.skip_update_button.setToolTip(
+            "Skip this job and keep it in the queue, starting from the currently rendered frame next time"
+        )
+        self.skip_update_button.clicked.connect(self.skip_and_update_current_job)
+        buttons.addWidget(self.skip_update_button)
         self.skip_button = QtWidgets.QPushButton("Skip", self)
         self.skip_button.setAutoDefault(False)
         self.skip_button.setEnabled(False)
@@ -183,6 +195,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.started_job_names.add(job_name)
         self.current_index = index
         self.current_job_name = job_name
+        self.skip_update_button.setEnabled(False)
         self.skip_button.setEnabled(False)
         frames = item.data(JobDataRole.FrameCountRole)
         self.total_frames = frames
@@ -222,6 +235,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.processing_rate_clock.start()
         self.eta_label.setText("ETA: --:--:--")
         self.report_labels["f/s:"][1].setText("0.00")
+        self.skip_update_button.setEnabled(False)
         self.skip_button.setEnabled(True)
         self.status_label.setText(
             f"Processing job ({self.current_index}/{self.total_jobs}): {self.current_job_name}"
@@ -234,6 +248,8 @@ class JobProgressDialog(QtWidgets.QDialog):
 
     @QtCore.Slot()
     def processing_stopped(self):
+        self.skip_button.setEnabled(False)
+        self.skip_update_button.setEnabled(False)
         self.update_runtime()
         self.processing_rate_clock.invalidate()
         if self.completed_frames != self.total_frames:
@@ -248,13 +264,20 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.completed_frames = self.total_frames
         self.report_labels["Item progress:"][1].setText("100.0%")
         self.eta_label.setText("ETA: 00:00:00")
+        self.skip_update_button.setEnabled(False)
         self.skip_button.setEnabled(False)
         self.progress_bar.setValue(self.current_index)
         self.status_label.setText(f"Completed job {self.current_index}/{self.total_jobs}: {job_name}")
 
     def skip_current_job(self):
+        self.skip_update_button.setEnabled(False)
         self.skip_button.setEnabled(False)
         self.skipRequested.emit(self.save_partial_on_skip_checkbox.isChecked())
+
+    def skip_and_update_current_job(self):
+        self.skip_update_button.setEnabled(False)
+        self.skip_button.setEnabled(False)
+        self.skipAndUpdateRequested.emit(self.save_partial_on_skip_checkbox.isChecked())
 
     @QtCore.Slot(str)
     def job_skipped(self, job_name):
@@ -272,6 +295,7 @@ class JobProgressDialog(QtWidgets.QDialog):
     def stopping(self):
         self.stop_after_completion_checkbox.setEnabled(False)
         self.stop_after_processing_row.setEnabled(False)
+        self.skip_update_button.setEnabled(False)
         self.skip_button.setEnabled(False)
         self.stop_button.setEnabled(False)
         self.cancel_button.setEnabled(False)
@@ -283,6 +307,12 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.runtime_label.setText(f"Runtime: {hours:02}:{minutes:02}:{seconds:02}")
         if self.processing_rate_clock.isValid():
             self.completed_frames = self.parentWidget().video_processor.media_pipeline.absolute_frames_processed
+            processor = self.parentWidget().video_processor
+            self.skip_update_button.setEnabled(
+                self.skip_button.isEnabled()
+                and 0 < self.completed_frames < self.total_frames
+                and processor.last_displayed_frame is not None
+            )
             self.report_labels["Item progress:"][1].setText(
                 f"{self.completed_frames / self.total_frames:.1%}"
             )

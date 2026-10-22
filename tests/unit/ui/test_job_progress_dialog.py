@@ -6,6 +6,78 @@ import subprocess
 import sys
 import textwrap
 
+import pytest
+
+
+@pytest.mark.parametrize("theme,scale", [("dark", "1"), ("light", "1.5"), ("dark", "2")])
+def test_job_progress_skip_update_states_and_spacing(tmp_path, theme, scale):
+    script = textwrap.dedent('''
+        import sys
+        from types import SimpleNamespace
+        from PySide6 import QtCore, QtWidgets, QtTest
+        import qdarktheme
+        from app.ui.widgets import job_progress_dialog
+
+        app = QtWidgets.QApplication([])
+        app.setStyleSheet(qdarktheme.load_stylesheet(theme=sys.argv[2]))
+        job_progress_dialog.settings_group = lambda namespace, parent: QtCore.QSettings(
+            sys.argv[1], QtCore.QSettings.IniFormat, parent
+        )
+        window = QtWidgets.QMainWindow()
+        video = SimpleNamespace(is_processing_segments=False, max_frame_number=99,
+                                next_frame_to_display=0, last_displayed_frame=None,
+                                media_pipeline=SimpleNamespace(absolute_frames_processed=0))
+        window.video_processor = video
+        dialog = job_progress_dialog.JobProgressDialog(window, {})
+        dialog.resize(800, 850)
+        dialog.show()
+        app.processEvents()
+        row = dialog.stop_after_processing_row
+        assert row.height() == row.sizeHint().height()
+        assert row.y() - dialog.save_partial_on_skip_checkbox.geometry().bottom() <= dialog.layout().spacing() + 1
+        assert dialog.suppress_notifications_checkbox.y() - row.geometry().bottom() <= dialog.layout().spacing() + 1
+        assert dialog.skip_update_button.geometry().right() < dialog.skip_button.x()
+        assert dialog.runtime_label.geometry().right() < dialog.skip_update_button.x()
+        assert not dialog.skip_update_button.isEnabled()
+        updates = QtTest.QSignalSpy(dialog.skipAndUpdateRequested)
+        skips = QtTest.QSignalSpy(dialog.skipRequested)
+        for save in (False, True):
+            dialog.processing_started()
+            video.media_pipeline.absolute_frames_processed = 0
+            video.last_displayed_frame = None
+            dialog.update_runtime()
+            assert not dialog.skip_update_button.isEnabled()
+            video.media_pipeline.absolute_frames_processed = 20
+            video.last_displayed_frame = 19
+            dialog.update_runtime()
+            assert dialog.skip_update_button.isEnabled()
+            dialog.save_partial_on_skip_checkbox.setChecked(save)
+            dialog.skip_update_button.setFocus()
+            QtTest.QTest.keyClick(dialog.skip_update_button, QtCore.Qt.Key_Space)
+            assert updates.at(updates.count() - 1) == [save]
+            assert skips.count() == 0
+            dialog.update_runtime()
+            assert not dialog.skip_update_button.isEnabled()
+            assert not dialog.skip_button.isEnabled()
+            dialog.processing_stopped()
+        dialog.processing_started()
+        video.media_pipeline.absolute_frames_processed = 100
+        dialog.update_runtime()
+        assert not dialog.skip_update_button.isEnabled()
+        dialog.processing_stopped()
+        assert not dialog.skip_button.isEnabled()
+        dialog.finish()
+        dialog.close()
+    ''')
+    result = subprocess.run(
+        [sys.executable, "-u", "-c", script, str(tmp_path / "settings.ini"), theme],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "QT_SCALE_FACTOR": scale},
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Traceback" not in result.stderr, result.stderr
+
 
 def test_job_progress_checkbox_preferences(tmp_path):
     script = textwrap.dedent('''
@@ -104,6 +176,7 @@ def test_job_progress_lifecycle(tmp_path):
             max_frame_number = 49
             next_frame_to_display = 0
             media_pipeline = SimpleNamespace(absolute_frames_processed=0)
+            last_displayed_frame = None
             def stop_processing(self):
                 self.processing_stopped_signal.emit()
 

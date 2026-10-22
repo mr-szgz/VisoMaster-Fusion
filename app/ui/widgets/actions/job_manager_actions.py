@@ -2295,6 +2295,9 @@ def start_job_processor(
     dialog.skipRequested.connect(
         lambda save: main_window.job_processor.run_ui_operation(main_window.job_processor.request_skip, save)
     )
+    dialog.skipAndUpdateRequested.connect(
+        lambda save: main_window.job_processor.run_ui_operation(main_window.job_processor.request_skip_and_update, save)
+    )
     dialog.stop_after_completion_checkbox.toggled.connect(
         main_window.job_processor.set_stop_after_current
     )
@@ -2500,6 +2503,28 @@ class JobProcessor(QThread):
             self.main_window.video_processor.stop_processing()
         except Exception as e:
             print(f"[WARN] Error while stopping active processing for cancel: {e}")
+
+    def request_skip_and_update(self, save_partial: bool):
+        processor = self.main_window.video_processor
+        resume_frame = processor.last_displayed_frame
+        if processor.recording and processor._used_ffmpeg_cap:
+            resume_frame = processor.output_to_source_frame(resume_frame)
+        job_path = self.jobs_dir / f"{self.current_job_name}.json"
+        with open(job_path, "r") as job_file:
+            job_data = json.load(job_file)
+        if job_data["job_marker_pairs"]:
+            job_data["job_marker_pairs"] = [
+                [max(start, resume_frame), end]
+                for start, end in job_data["job_marker_pairs"]
+                if end >= resume_frame
+            ]
+        else:
+            job_data["job_marker_pairs"] = [
+                [resume_frame, self.main_window.videoSeekSlider.maximum()]
+            ]
+        with open(job_path, "w") as job_file:
+            json.dump(job_data, job_file, indent=4)
+        self.request_skip(save_partial)
 
     def request_skip(self, save_partial: bool):
         self.skip_requested_event.set()

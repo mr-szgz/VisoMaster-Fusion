@@ -3031,7 +3031,7 @@ class VideoProcessor(QObject):
 
         # Calculate time boundaries for audio extraction mapping
         start_time_sec = start_frame / self.fps if self.fps > 0 else 0.0
-        end_time_sec = end_frame / self.fps if self.fps > 0 else 0.0
+        end_time_sec = (end_frame + 1) / self.fps if self.fps > 0 else 0.0
 
         success = self.encoder.start_process(
             output_filename=temp_segment_path,

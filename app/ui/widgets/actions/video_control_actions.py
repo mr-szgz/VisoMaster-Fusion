@@ -2109,11 +2109,11 @@ def record_video(main_window: "MainWindow", checked: bool):
                     )
                     main_window.buttonMediaRecord.setChecked(False)
                     return  # Stop if invalid
-                elif pair[0] >= pair[1]:
+                elif pair[0] > pair[1]:
                     common_widget_actions.create_and_show_messagebox(
                         main_window,
                         "Invalid Segment",
-                        f"Marker pair {i + 1} ({pair[0]}, {pair[1]}) is invalid. Start must be before End.",
+                        f"Marker pair {i + 1} ({pair[0]}, {pair[1]}) is invalid. Start must be at or before End.",
                         main_window,
                     )
                     main_window.buttonMediaRecord.setChecked(False)

@@ -359,6 +359,7 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
         from unittest.mock import MagicMock, patch
         import sys
         import time
+        import json
         from PySide6 import QtCore, QtWidgets, QtTest
         from app.ui.widgets.actions import job_manager_actions as actions
         from app.ui.widgets import job_progress_dialog
@@ -382,9 +383,14 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
             last_processing_error = None
             max_frame_number = 1
             next_frame_to_display = 0
+            last_displayed_frame = None
+            _used_ffmpeg_cap = True
             media_pipeline = SimpleNamespace(absolute_frames_processed=0)
             file_type = "video"
             media_path = "input.mp4"
+            def output_to_source_frame(self, frame):
+                return frame * 2
+
             def start_multi_segment_recording(self, segments, triggered_by_job_manager=False):
                 VideoProcessor.start_multi_segment_recording(self, segments, triggered_by_job_manager)
 
@@ -421,7 +427,7 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
                     QtTest.QTest.qWait(450)
                 self.stop_processing()
 
-        for mode in ("stop", "cancel", "skip_discard", "skip_save", "stop_after",
+        for mode in ("stop", "cancel", "skip_discard", "skip_save", "skip_update_save", "skip_update_discard", "skip_update_boundary", "stop_after",
                      "skip_stop_after", "limit", "skip_limit", "limit_disabled", "empty", "stop_empty", "stop_preroll", "stop_preroll_slow", "cancel_preroll", "timeout"):
             window = QtWidgets.QMainWindow()
             window.project_root_path = root / mode
@@ -442,13 +448,16 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
             window.control = {"OutputMediaFolder": str(root), "KeepControlsToggle": True,
                               "ConfirmBeforeStoppingRecordingToggle": True}
             window.videoSeekSlider = QtWidgets.QSlider(window)
+            window.videoSeekSlider.setMaximum(18 if mode == "skip_update_boundary" else 19)
             window.buttonMediaPlay = QtWidgets.QPushButton(window)
             for name in ("buttonProcessAll", "buttonProcessSelected", "buttonProcessSelectedSimilar", "buttonProcessAllSimilar", "buttonStopProcessing",
                          "loadJobButton", "deleteJobButton", "smartJobListButton", "buttonMediaRecord"):
                 setattr(window, name, QtWidgets.QPushButton(name, window))
             window.buttonMediaRecord.setCheckable(True)
+            saved_job = {"job_marker_pairs": [[0, 1], [3, 9], [12, 15]] if segmented else [],
+                         "control": {"keep": "unchanged"}, "embeddings_data": {"original": "embedding"}}
             for name in ("A", "B"):
-                (jobs / f"{name}.json").write_text("{}")
+                (jobs / f"{name}.json").write_text(json.dumps(saved_job))
                 item = QtWidgets.QListWidgetItem(name)
                 for role, value in ((Role.JobNameRole, name), (Role.FrameCountRole, 1),
                                     (Role.FrameRateRole, 0.0), (Role.EmbeddingNamesRole, [])):
@@ -464,7 +473,7 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
 
             def settings(mw, data):
                 events.append("load " + data["job_name_internal"])
-                mw.job_marker_pairs = [(0, 1), (3, 4)] if segmented else []
+                mw.job_marker_pairs = saved_job["job_marker_pairs"]
                 mw.job_processor.job_settings_loaded_event.set()
 
             def action():
@@ -481,8 +490,19 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
                         dialog.stop_after_processing_spinbox.setValue(1)
                         dialog.stop_after_processing_checkbox.setChecked(True)
                     dialog.stop_after_completion_checkbox.setChecked(mode == "skip_stop_after")
-                    dialog.save_partial_on_skip_checkbox.setChecked(mode == "skip_save")
-                    dialog.skip_button.click()
+                    dialog.save_partial_on_skip_checkbox.setChecked(mode in ("skip_save", "skip_update_save"))
+                    if mode.startswith("skip_update"):
+                        video.last_displayed_frame = 9 if mode == "skip_update_boundary" else 5
+                        video.current_frame_number = 18  # Decoder is ahead of rendered output.
+                        video.media_pipeline.absolute_frames_processed = 5
+                        dialog.total_frames = 20
+                        dialog.update_runtime()
+                        assert dialog.skip_update_button.isEnabled()
+                        dialog.skip_update_button.click()
+                        assert not dialog.skip_update_button.isEnabled()
+                        assert not dialog.skip_button.isEnabled()
+                    else:
+                        dialog.skip_button.click()
                 elif mode == "empty":
                     video.stop_processing()
                 else:
@@ -542,10 +562,21 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
                 assert events[-2:] == ["restore", "report"]
                 assert events.count("restore") == 1
                 completed = {path.stem for path in (jobs / "completed").glob("*.json")}
-                assert completed == ({"B"} if mode in ("skip_discard", "skip_save", "skip_limit")
+                assert completed == ({"B"} if mode in ("skip_discard", "skip_save", "skip_limit", "skip_update_save", "skip_update_discard", "skip_update_boundary")
                                      else {"A", "B"} if mode == "limit_disabled"
                                      else {"A"} if mode in ("stop_after", "limit") else set()), (mode, completed)
-                assert ("load B" in events) == (mode in ("skip_discard", "skip_save", "skip_limit", "limit_disabled"))
+                assert ("load B" in events) == (mode in ("skip_discard", "skip_save", "skip_limit", "limit_disabled", "skip_update_save", "skip_update_discard", "skip_update_boundary"))
+                if mode.startswith("skip_update"):
+                    updated_job = json.loads((jobs / "A.json").read_text())
+                    expected_ranges = ([[9, 9], [12, 15]] if segmented else [[18, 18]]) if mode == "skip_update_boundary" else (
+                        [[5, 9], [12, 15]] if segmented else [[10, 19]])
+                    assert updated_job == {**saved_job, "job_marker_pairs": expected_ranges}
+                    assert window.jobQueueList.count() == 1
+                    assert window.jobQueueList.item(0).data(Role.JobNameRole) == "A"
+                    window.job_marker_pairs = updated_job["job_marker_pairs"]
+                    with patch.object(window.video_processor, "start_multi_segment_recording") as restart:
+                        actions.video_control_actions.record_video(window, True)
+                        restart.assert_called_once_with([tuple(pair) for pair in expected_ranges], triggered_by_job_manager=False)
                 assert bool(worker.skipped_jobs) == mode.startswith("skip")
                 assert worker.batch_cancelled == (mode in ("cancel", "cancel_preroll"))
                 assert worker.batch_stopped == (mode in ("stop", "stop_empty", "stop_after", "skip_stop_after", "limit", "skip_limit", "stop_preroll", "stop_preroll_slow"))
@@ -554,7 +585,8 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
                     assert errors == [("A", empty_error)]
                 if mode == "timeout":
                     assert errors == [("A", "Timeout waiting for processing to start signal.")]
-                expected_saves = 2 if mode in ("skip_save", "limit_disabled") else 1 if mode in (
+                expected_saves = 2 if mode in ("skip_save", "limit_disabled", "skip_update_save") else 1 if mode in (
+                    "skip_update_discard", "skip_update_boundary",
                     "stop", "stop_empty", "skip_discard", "stop_after", "limit", "skip_limit", "stop_preroll", "stop_preroll_slow"
                 ) else 0
                 assert events.count("save") == expected_saves, (mode, events)

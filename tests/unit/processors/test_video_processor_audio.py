@@ -1,14 +1,44 @@
 from __future__ import annotations
 
 import queue
+import threading
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 import numpy as np
+import pytest
 import torch
 
 from app.processors.video_processor import VideoProcessor
 from app.processors.video_utils.media_pipeline import MediaPipeline
 from app.processors.video_utils.video_encoding import FFmpegPostProcessor
+
+
+@pytest.mark.parametrize("end_frame", [9, 19])
+def test_resumed_segment_audio_includes_last_frame(tmp_path, monkeypatch, end_frame):
+    monkeypatch.setattr("app.processors.video_processor.misc_helpers.seek_frame", lambda *args: None)
+    monkeypatch.setattr(
+        "app.processors.video_processor.misc_helpers.read_frame",
+        lambda *args, **kwargs: (True, np.zeros((2, 2, 3), dtype=np.uint8)),
+    )
+    processor = SimpleNamespace(
+        current_segment_index=-1, segments_to_process=[(9, end_frame)],
+        media_capture=MagicMock(), media_rotation=0,
+        _get_target_input_height=lambda: 2,
+        main_window=SimpleNamespace(videoSeekSlider=MagicMock(), parameters={}, control={}),
+        frames_to_display={}, num_threads=1, join_and_clear_threads=lambda: None,
+        worker_pool_manager=MagicMock(), max_display_buffer_size=2,
+        segment_temp_dir=str(tmp_path), temp_segment_files=[], fps=25,
+        media_path="source.mp4", encoder=MagicMock(), frame_queue=queue.Queue(),
+        start_frame_worker=MagicMock(), state_lock=threading.Lock(), media_pipeline=MagicMock(),
+    )
+    VideoProcessor.process_next_segment(processor)
+    arguments = processor.encoder.start_process.call_args.kwargs
+    assert arguments["start_time_sec"] == 9 / 25
+    assert arguments["end_time_sec"] == (end_frame + 1) / 25
+    assert arguments["end_time_sec"] > arguments["start_time_sec"]
+    assert processor.start_frame_worker.call_args.args[0] == 9
+    assert processor.next_frame_to_display == 9
 
 
 class _RunResult:
@@ -370,6 +400,7 @@ def _make_finalize_default_style_recording_dummy(
         file_type="image",
         main_window=SimpleNamespace(
             is_batch_processing=False,
+            findChild=lambda *args: None,
             control={
                 "OutputMediaFolder": str(tmp_path / "fallback-output"),
                 "AutoSaveWorkspaceToggle": auto_save,
@@ -579,6 +610,7 @@ def _make_finalize_segment_concatenation_dummy(
         file_type="image",
         main_window=SimpleNamespace(
             is_batch_processing=False,
+            findChild=lambda *args: None,
             control={
                 "AutoSaveWorkspaceToggle": auto_save,
                 "OpenOutputToggle": False,
