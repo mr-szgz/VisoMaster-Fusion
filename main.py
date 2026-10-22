@@ -5,6 +5,15 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+if __name__ == "__main__":
+    from app.helpers.crash_logging import enable_native_crash_logging
+
+    # Retain the open file for the entire process, including native teardown.
+    # Install before importing torch, Qt, or other native extensions.
+    _native_crash_log = enable_native_crash_logging(
+        Path(__file__).resolve().parent / "crash_logs"
+    )
+
 # --- PyTorch VRAM Optimization ---
 # MUST be set BEFORE importing torch (which occurs during _run_app).
 # Instructs the caching allocator to release unused memory segments back to the CUDA driver.
