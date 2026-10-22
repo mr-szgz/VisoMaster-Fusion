@@ -36,7 +36,23 @@ def test_job_progress_skip_update_states_and_spacing(tmp_path, theme, scale):
         assert row.height() == row.sizeHint().height()
         assert row.y() - dialog.save_partial_on_skip_checkbox.geometry().bottom() <= dialog.layout().spacing() + 1
         assert dialog.suppress_notifications_checkbox.y() - row.geometry().bottom() <= dialog.layout().spacing() + 1
-        assert dialog.skip_update_button.geometry().right() < dialog.skip_button.x()
+        assert dialog.skip_update_button.isHidden()
+        assert dialog.stop_update_button.isHidden()
+        assert dialog.skip_button.isVisible()
+        assert dialog.stop_button.isVisible()
+        dialog.update_partial_jobs_checkbox.setChecked(True)
+        app.processEvents()
+        assert dialog.skip_update_button.isVisible()
+        assert dialog.stop_update_button.isVisible()
+        assert dialog.skip_button.isHidden()
+        assert dialog.stop_button.isHidden()
+        assert dialog.skip_update_button.geometry().right() < dialog.stop_update_button.x()
+        dialog.update_partial_jobs_checkbox.setChecked(False)
+        assert dialog.skip_update_button.isHidden()
+        assert dialog.stop_update_button.isHidden()
+        assert dialog.skip_button.isVisible()
+        assert dialog.stop_button.isVisible()
+        dialog.update_partial_jobs_checkbox.setChecked(True)
         assert dialog.runtime_label.geometry().right() < dialog.skip_update_button.x()
         assert not dialog.skip_update_button.isEnabled()
         updates = QtTest.QSignalSpy(dialog.skipAndUpdateRequested)
@@ -47,10 +63,12 @@ def test_job_progress_skip_update_states_and_spacing(tmp_path, theme, scale):
             video.last_displayed_frame = None
             dialog.update_runtime()
             assert not dialog.skip_update_button.isEnabled()
+            assert not dialog.stop_update_button.isEnabled()
             video.media_pipeline.absolute_frames_processed = 20
             video.last_displayed_frame = 19
             dialog.update_runtime()
             assert dialog.skip_update_button.isEnabled()
+            assert dialog.stop_update_button.isEnabled()
             dialog.save_partial_on_skip_checkbox.setChecked(save)
             dialog.skip_update_button.setFocus()
             QtTest.QTest.keyClick(dialog.skip_update_button, QtCore.Qt.Key_Space)
@@ -58,6 +76,7 @@ def test_job_progress_skip_update_states_and_spacing(tmp_path, theme, scale):
             assert skips.count() == 0
             dialog.update_runtime()
             assert not dialog.skip_update_button.isEnabled()
+            assert not dialog.stop_update_button.isEnabled()
             assert not dialog.skip_button.isEnabled()
             dialog.processing_stopped()
         dialog.processing_started()
@@ -68,6 +87,28 @@ def test_job_progress_skip_update_states_and_spacing(tmp_path, theme, scale):
         assert not dialog.skip_button.isEnabled()
         dialog.finish()
         dialog.close()
+        for save in (False, True):
+            dialog = job_progress_dialog.JobProgressDialog(window, {})
+            dialog.show()
+            dialog.update_partial_jobs_checkbox.setChecked(True)
+            stops = QtTest.QSignalSpy(dialog.stopAndUpdateRequested)
+            normal_stops = QtTest.QSignalSpy(dialog.stopRequested)
+            dialog.processing_started()
+            video.media_pipeline.absolute_frames_processed = 20
+            video.last_displayed_frame = 19
+            dialog.update_runtime()
+            dialog.save_partial_on_skip_checkbox.setChecked(save)
+            dialog.stop_update_button.click()
+            assert stops.count() == 1
+            assert stops.at(0) == [save]
+            assert normal_stops.count() == 0
+            dialog.update_runtime()
+            assert not dialog.stop_update_button.isEnabled()
+            assert not dialog.skip_update_button.isEnabled()
+            assert not dialog.update_partial_jobs_checkbox.isEnabled()
+            dialog.processing_stopped()
+            dialog.finish()
+            dialog.close()
     ''')
     result = subprocess.run(
         [sys.executable, "-u", "-c", script, str(tmp_path / "settings.ini"), theme],
@@ -94,6 +135,7 @@ def test_job_progress_checkbox_preferences(tmp_path):
         settings = isolated_settings("Dialogs/JobProcessing", app)
         initial = job_progress_dialog.JobProgressDialog(None, {})
         assert not initial.suppress_notifications_checkbox.isChecked()
+        assert not initial.update_partial_jobs_checkbox.isChecked()
         assert not initial.stop_after_processing_checkbox.isChecked()
         assert initial.stop_after_processing_spinbox.value() == 100
         assert not initial.stop_after_processing_spinbox.isEnabled()
@@ -108,6 +150,7 @@ def test_job_progress_checkbox_preferences(tmp_path):
             dialog.save_partial_on_skip_checkbox.setChecked(not checked)
             dialog.save_partial_on_skip_checkbox.setChecked(checked)
             dialog.suppress_notifications_checkbox.setChecked(checked)
+            dialog.update_partial_jobs_checkbox.setChecked(checked)
             dialog.stop_after_processing_checkbox.setChecked(checked)
             dialog.stop_after_processing_spinbox.setValue(25)
             assert dialog.stop_after_processing_spinbox.isEnabled() == checked
@@ -120,6 +163,11 @@ def test_job_progress_checkbox_preferences(tmp_path):
             assert not reopened.stop_after_completion_checkbox.isChecked()
             assert reopened.save_partial_on_skip_checkbox.isChecked() == checked
             assert reopened.suppress_notifications_checkbox.isChecked() == checked
+            assert reopened.update_partial_jobs_checkbox.isChecked() == checked
+            assert reopened.skip_button.isHidden() == checked
+            assert reopened.stop_button.isHidden() == checked
+            assert reopened.skip_update_button.isHidden() != checked
+            assert reopened.stop_update_button.isHidden() != checked
             assert reopened.stop_after_processing_checkbox.isChecked() == checked
             assert reopened.stop_after_processing_spinbox.value() == 25
             assert reopened.stop_after_processing_spinbox.isEnabled() == checked

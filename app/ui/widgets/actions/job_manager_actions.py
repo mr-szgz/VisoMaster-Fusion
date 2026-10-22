@@ -1464,6 +1464,13 @@ def stop_processing_jobs(main_window: "MainWindow"):
     update_job_manager_buttons(main_window)
 
 
+def stop_and_update_processing_jobs(main_window: "MainWindow", save_partial: bool):
+    main_window.job_processor.run_ui_operation(
+        main_window.job_processor.request_stop_and_update, save_partial
+    )
+    update_job_manager_buttons(main_window)
+
+
 def cancel_processing_jobs(main_window: "MainWindow"):
     """Interrupt the active job queue without saving current output."""
     main_window.job_progress_dialog.stopping()
@@ -2298,6 +2305,7 @@ def start_job_processor(
     dialog.skipAndUpdateRequested.connect(
         lambda save: main_window.job_processor.run_ui_operation(main_window.job_processor.request_skip_and_update, save)
     )
+    dialog.stopAndUpdateRequested.connect(lambda save: stop_and_update_processing_jobs(main_window, save))
     dialog.stop_after_completion_checkbox.toggled.connect(
         main_window.job_processor.set_stop_after_current
     )
@@ -2525,6 +2533,36 @@ class JobProcessor(QThread):
         with open(job_path, "w") as job_file:
             json.dump(job_data, job_file, indent=4)
         self.request_skip(save_partial)
+
+    def request_stop_and_update(self, save_partial: bool):
+        processor = self.main_window.video_processor
+        resume_frame = processor.last_displayed_frame
+        if processor.recording and processor._used_ffmpeg_cap:
+            resume_frame = processor.output_to_source_frame(resume_frame)
+        job_path = self.jobs_dir / f"{self.current_job_name}.json"
+        with open(job_path, "r") as job_file:
+            job_data = json.load(job_file)
+        if job_data["job_marker_pairs"]:
+            job_data["job_marker_pairs"] = [
+                [max(start, resume_frame), end]
+                for start, end in job_data["job_marker_pairs"]
+                if end >= resume_frame
+            ]
+        else:
+            job_data["job_marker_pairs"] = [
+                [resume_frame, self.main_window.videoSeekSlider.maximum()]
+            ]
+        with open(job_path, "w") as job_file:
+            json.dump(job_data, job_file, indent=4)
+        self.batch_stopped = True
+        self.stop_requested_event.set()
+        self.processing_started_event.set()
+        if save_partial and processor.is_processing_segments:
+            processor.finalize_segment_concatenation()
+        elif save_partial and processor.recording:
+            processor._finalize_default_style_recording()
+        elif processor.processing or processor.is_processing_segments:
+            processor.stop_processing()
 
     def request_skip(self, save_partial: bool):
         self.skip_requested_event.set()
