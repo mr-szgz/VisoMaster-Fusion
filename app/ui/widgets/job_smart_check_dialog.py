@@ -334,13 +334,13 @@ class JobSmartCheckDialog(QtWidgets.QDialog):
         )
         self.remove_button.clicked.connect(self.remove_failures)
         buttons.addWidget(self.remove_button)
-        self.remove_embeddings_button = QtWidgets.QPushButton("Remove Extraneous Embeddings", self)
+        self.remove_embeddings_button = QtWidgets.QPushButton("Remove Unused Embeddings", self)
         self.remove_embeddings_button.setAutoDefault(False)
         self.remove_embeddings_button.setEnabled(False)
         self.remove_embeddings_button.setToolTip(
             "Remove saved embeddings not assigned to any target face in the selected jobs."
         )
-        self.remove_embeddings_button.clicked.connect(self.remove_extraneous_embeddings)
+        self.remove_embeddings_button.clicked.connect(self.remove_unused_embeddings)
         buttons.addWidget(self.remove_embeddings_button)
         self.update_metadata_button = QtWidgets.QPushButton("Update Metadata", self)
         self.update_metadata_button.setAutoDefault(False)
@@ -617,7 +617,7 @@ class JobSmartCheckDialog(QtWidgets.QDialog):
         job_list.scrollTo(index, QtWidgets.QAbstractItemView.EnsureVisible)
 
     @QtCore.Slot()
-    def remove_extraneous_embeddings(self):
+    def remove_unused_embeddings(self):
         self.start_action("embeddings", self.results.selectedItems())
 
     @QtCore.Slot()
@@ -646,7 +646,7 @@ class JobSmartCheckDialog(QtWidgets.QDialog):
         self.progress_bar.setValue(0)
         self.status_label.setText({
             "remove": "Removing failed jobs…",
-            "embeddings": "Removing extraneous embeddings…",
+            "embeddings": "Removing unused embeddings…",
             "metadata": "Updating metadata…",
         }[action])
         self.action_worker = JobSmartActionWorker(
@@ -710,7 +710,7 @@ class JobSmartCheckDialog(QtWidgets.QDialog):
         self.action_items.clear()
         summary = {
             "remove": f"Removed {self.action_changed} failed job(s) to the Recycle Bin.",
-            "embeddings": f"Removed {self.action_changed} extraneous embedding(s).",
+            "embeddings": f"Removed {self.action_changed} unused embedding(s).",
             "metadata": f"Updated metadata for {self.action_changed} job(s).",
         }[action]
         self.status_label.setText(f"Stopped. {summary}" if self.stop_requested else summary)
