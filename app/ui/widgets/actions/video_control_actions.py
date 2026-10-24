@@ -2864,7 +2864,12 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     progress_dialog.setWindowModality(QtCore.Qt.NonModal)
     progress_dialog.setWindowTitle("Batch Processing Media")
     def interrupt_skipped_media():
+        nonlocal skipped_resume_frame
         processor = main_window.video_processor
+        if batch_recording_started and processor.frames_written > 0:
+            skipped_resume_frame = processor.last_displayed_frame
+            if processor.recording and processor._used_ffmpeg_cap:
+                skipped_resume_frame = processor.output_to_source_frame(skipped_resume_frame)
         if (
             progress_dialog.save_partial_on_skip_checkbox.isChecked()
             and processor.recording
@@ -2907,6 +2912,8 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     try:
         # 7. Processing Loop
         for media_path, file_type, media_widget in media_files_to_process:
+            batch_recording_started = False
+            skipped_resume_frame = None
             progress_dialog.skip_requested = False
             progress_dialog.skip_button.setEnabled(True)
             progress_dialog.stop_button.setEnabled(True)
@@ -2927,6 +2934,9 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     job_path = job_manager_actions.get_jobs_dir(main_window) / f"{job_name}.json"
                     with job_path.open(encoding="utf-8") as job_file:
                         job_data = json.load(job_file)
+                    job_data["job_marker_pairs"] = []
+                    with job_path.open("w", encoding="utf-8") as job_file:
+                        json.dump(job_data, job_file, indent=4)
                     job_manager_actions.refresh_new_jobs(
                         main_window, saved_jobs={job_name: job_data}
                     )
@@ -3142,6 +3152,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
                     # 2. Trigger the recording. This will start the async process.
                     main_window.video_processor.recording_output_saved = False
+                    batch_recording_started = True
                     record_video(main_window, True)
                     total_recording_frames = main_window.video_processor.max_frame_number + 1
 
@@ -3253,6 +3264,14 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                         job_path = job_manager_actions.get_jobs_dir(main_window) / f"{job_name}.json"
                         with job_path.open(encoding="utf-8") as job_file:
                             job_data = json.load(job_file)
+                        # Batch recording ignores workspace in/out points and renders the full video.
+                        job_data["job_marker_pairs"] = []
+                        if not progress_dialog.save_jobs_at_frame_zero_checkbox.isChecked() and skipped_resume_frame is not None:
+                            job_data["job_marker_pairs"] = [
+                                [skipped_resume_frame, max_frames]
+                            ]
+                        with job_path.open("w", encoding="utf-8") as job_file:
+                            json.dump(job_data, job_file, indent=4)
                         job_manager_actions.refresh_new_jobs(
                             main_window, saved_jobs={job_name: job_data}
                         )

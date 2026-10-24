@@ -288,16 +288,26 @@ def test_skip_button_batch_interrupt_wiring(progress_dialog_module, qapp, monkey
     dialog.minimum_partial_frames_spinbox.setValue(30)
     processor = SimpleNamespace(
         frames_written=frames,
+        last_displayed_frame=frames - 1, _used_ffmpeg_cap=False,
         recording=True, processing=True, is_processing_segments=False,
         stop_processing=MagicMock(), _finalize_default_style_recording=MagicMock(),
     )
     namespace = {"progress_dialog": dialog, "main_window": SimpleNamespace(video_processor=processor)}
-    exec(compile(ast.Module(body=[handler, connection], type_ignores=[]), str(source), "exec"), namespace)
+    scope = ast.parse(
+        "def connect_skip():\n"
+        "    skipped_resume_frame = None\n"
+        "    batch_recording_started = True\n"
+    )
+    scope.body[0].body.extend([handler, connection])
+    scope.body[0].body.extend(ast.parse("return lambda: skipped_resume_frame").body)
+    exec(compile(ast.fix_missing_locations(scope), str(source), "exec"), namespace)
+    resume_frame = namespace["connect_skip"]()
     monkeypatch.setattr(QtWidgets.QMessageBox, "question", MagicMock(return_value=reply))
 
     dialog.skip_button.click()
 
     confirmed = reply == QtWidgets.QMessageBox.Yes
+    assert resume_frame() == (frames - 1 if confirmed and frames > 0 else None)
     assert dialog.skip_requested == confirmed
     save_output = save_partial and (not minimum_enabled or frames >= 30)
     assert processor.stop_processing.call_count == int(confirmed and not save_output)
@@ -573,6 +583,7 @@ def test_batch_checkbox_preferences_exclude_stop_after_current(progress_dialog_m
     names = (
         "remove_completed_checkbox", "stop_after_processing_checkbox",
         "save_skipped_checkbox", "save_partial_on_skip_checkbox",
+        "save_jobs_at_frame_zero_checkbox",
         "minimum_partial_frames_checkbox", "clear_skipped_checkbox",
         "suppress_notifications_checkbox",
     )
@@ -745,3 +756,14 @@ def test_minimum_partial_frames_settings_and_layout(progress_dialog_module, qapp
     assert reopened.minimum_partial_frames_checkbox.isChecked()
     assert reopened.minimum_partial_frames_spinbox.isEnabled()
     reopened.close_without_confirmation()
+
+
+@pytest.mark.qt
+def test_save_jobs_at_frame_zero_defaults_off_and_follows_partial(progress_dialog_module, qapp):
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 4)
+    assert not dialog.save_jobs_at_frame_zero_checkbox.isChecked()
+    dialog.show()
+    qapp.processEvents()
+    assert dialog.save_partial_on_skip_checkbox.geometry().bottom() < dialog.save_jobs_at_frame_zero_checkbox.y()
+    assert dialog.save_jobs_at_frame_zero_checkbox.geometry().bottom() < dialog.minimum_partial_frames_row.y()
+    dialog.close_without_confirmation()

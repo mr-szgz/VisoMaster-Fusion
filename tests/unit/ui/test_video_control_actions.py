@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sys
 from types import SimpleNamespace
@@ -1205,6 +1206,7 @@ class _FakeProgressDialog(QObject):
         self.stop_after_processing_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self.stop_after_processing_spinbox = MagicMock(value=MagicMock(return_value=100))
         self.save_skipped_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
+        self.save_jobs_at_frame_zero_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self.save_partial_on_skip_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self.minimum_partial_frames_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self.minimum_partial_frames_spinbox = MagicMock(value=MagicMock(return_value=30))
@@ -1823,8 +1825,15 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
 @pytest.mark.parametrize("save_partial", [False, True])
 @pytest.mark.parametrize("clear_skipped", [False, True])
 @pytest.mark.parametrize("auto_skip", [False, True])
+@pytest.mark.parametrize("frame_zero, ffmpeg, marker_pairs, rendered_frames", [
+    (False, False, [], 6),
+    (False, True, [], 6),
+    (True, False, [[1, 2], [4, 9]], 6),
+    (False, False, [[1, 2], [4, 9]], 6),
+    (False, False, [[1, 2]], 0),
+])
 def test_process_batch_images_stop_or_cancel_video_ends_batch(
-    monkeypatch, tmp_path, video_actions_env, save_on_stop, skip, save_skipped, save_partial, clear_skipped, auto_skip
+    monkeypatch, tmp_path, video_actions_env, save_on_stop, skip, save_skipped, save_partial, clear_skipped, auto_skip, frame_zero, ffmpeg, marker_pairs, rendered_frames
 ):
     from app.ui.widgets.actions import job_manager_actions
 
@@ -1841,7 +1850,7 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
         saved_media.append(media.media_path)
         job_name = f"saved_{len(saved_media)}"
         (tmp_path / f"{job_name}.json").write_text(
-            '{"selected_media_id": "saved-target"}', encoding="utf-8"
+            json.dumps({"selected_media_id": "saved-target", "job_marker_pairs": marker_pairs}), encoding="utf-8"
         )
         return job_name
 
@@ -1869,6 +1878,8 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
 
     def _stop_processing():
         main_window.video_processor.processing = False
+        main_window.video_processor.last_displayed_frame = None
+        main_window.video_processor.recording = False
 
     main_window.video_processor.stop_processing = MagicMock(
         side_effect=_stop_processing
@@ -1941,12 +1952,18 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
         mw.current_widget_parameters["Strength"] = 83
         mw.control["OutputMediaFolder"] = "E:/latest-output"
         mw.video_processor.processing = True
-        mw.video_processor.frames_written = 0
+        mw.video_processor.frames_written = rendered_frames
+        mw.video_processor.last_displayed_frame = 5 if rendered_frames else None
+        mw.video_processor._used_ffmpeg_cap = ffmpeg
+        mw.video_processor.output_to_source_frame = MagicMock(return_value=3)
+        if ffmpeg:
+            mw.video_processor.max_frame_number = 19
         mw.video_processor.recording = True
         mw.video_processor.is_processing_segments = False
         if skip:
             dialog = _FakeProgressDialog.instances[-1]
             assert not dialog.skip_requested
+            dialog.save_jobs_at_frame_zero_checkbox.isChecked.return_value = frame_zero
             dialog.save_skipped_checkbox.isChecked.return_value = save_skipped
             dialog.save_partial_on_skip_checkbox.isChecked.return_value = save_partial
             dialog.clear_skipped_checkbox.isChecked.return_value = clear_skipped
@@ -1967,6 +1984,7 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
             assert not main_window.video_processor.processing
             main_window.current_widget_parameters["Strength"] = 83
             main_window.control["OutputMediaFolder"] = "E:/latest-output"
+            dialog.save_jobs_at_frame_zero_checkbox.isChecked.return_value = frame_zero
             dialog.save_skipped_checkbox.isChecked.return_value = save_skipped
             dialog.clear_skipped_checkbox.isChecked.return_value = clear_skipped
             dialog.skip_button.click()
@@ -1996,10 +2014,12 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
         assert record_video.call_count == (0 if auto_skip else 2)
         assert saved_media == (["E:/media/video_1.mp4", "E:/media/video_2.mp4"] if save_skipped else [])
         assert refresh_jobs.call_count == (2 if save_skipped else 0)
+        expected_pairs = [] if frame_zero or auto_skip or not rendered_frames else [[3 if ffmpeg else 5, 9]]
         for index, refresh_call in enumerate(refresh_jobs.call_args_list, 1):
+            assert json.loads((tmp_path / f"saved_{index}.json").read_text(encoding="utf-8"))["job_marker_pairs"] == expected_pairs
             assert refresh_call.args == (main_window,)
             assert refresh_call.kwargs == {
-                "saved_jobs": {f"saved_{index}": {"selected_media_id": "saved-target"}}
+                "saved_jobs": {f"saved_{index}": {"selected_media_id": "saved-target", "job_marker_pairs": expected_pairs}}
             }
         assert main_window.video_processor.stop_processing.call_count == (0 if auto_skip or save_partial else 2)
         assert main_window.video_processor._finalize_default_style_recording.call_count == (2 if save_partial and not auto_skip else 0)

@@ -2220,6 +2220,10 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.save_partial_on_skip_checkbox.setToolTip(
             "Save the recorded portion of the current video before skipping to the next item"
         )
+        self.save_jobs_at_frame_zero_checkbox = QtWidgets.QCheckBox("Save jobs at frame 0", self)
+        self.save_jobs_at_frame_zero_checkbox.setToolTip(
+            "Save skipped jobs without in/out points to render the full video; otherwise resume from the last rendered frame"
+        )
         self.minimum_partial_frames_row = QtWidgets.QWidget(self)
         minimum_layout = QtWidgets.QHBoxLayout(self.minimum_partial_frames_row)
         minimum_layout.setContentsMargins(0, 0, 0, 0)
@@ -2279,6 +2283,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             "remove_completed_checkbox",
             "stop_after_processing_checkbox",
             "save_skipped_checkbox", "save_partial_on_skip_checkbox",
+            "save_jobs_at_frame_zero_checkbox",
             "minimum_partial_frames_checkbox",
             "clear_skipped_checkbox", "suppress_notifications_checkbox",
         ):
@@ -2373,6 +2378,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             + self.stop_after_processing_row.sizeHint().height() + 12
             + self.save_skipped_checkbox.sizeHint().height() + 12
             + self.save_partial_on_skip_checkbox.sizeHint().height() + 12
+            + self.save_jobs_at_frame_zero_checkbox.sizeHint().height() + 12
             + self.minimum_partial_frames_row.sizeHint().height() + 12
             + self.clear_skipped_checkbox.sizeHint().height() + 12
             + self.suppress_notifications_checkbox.sizeHint().height() + 12
@@ -2599,8 +2605,11 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.minimum_partial_frames_row.setGeometry(
             bar.x(), minimum_y, bar.width(), self.minimum_partial_frames_row.sizeHint().height()
         )
+        self.save_jobs_at_frame_zero_checkbox.adjustSize()
+        frame_zero_y = minimum_y - self.save_jobs_at_frame_zero_checkbox.height() - 12
+        self.save_jobs_at_frame_zero_checkbox.move(bar.x(), frame_zero_y)
         self.save_partial_on_skip_checkbox.adjustSize()
-        partial_checkbox_y = minimum_y - self.save_partial_on_skip_checkbox.height() - 12
+        partial_checkbox_y = frame_zero_y - self.save_partial_on_skip_checkbox.height() - 12
         self.save_partial_on_skip_checkbox.move(bar.x(), partial_checkbox_y)
         self.save_skipped_checkbox.adjustSize()
         save_checkbox_y = partial_checkbox_y - self.save_skipped_checkbox.height() - 12
