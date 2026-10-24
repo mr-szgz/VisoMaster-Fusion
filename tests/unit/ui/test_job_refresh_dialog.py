@@ -82,6 +82,11 @@ def test_incremental_refresh_and_cancel(tmp_path):
         assert dialog.worker_threads_spinbox.minimum() == 1
         assert dialog.worker_threads_spinbox.maximum() == 64
         dialog.worker_threads_spinbox.setValue(4)
+        dialog.show()
+        app.processEvents()
+        assert dialog.status_label.text() == ""
+        assert dialog.worker_threads_spinbox.y() > dialog.progress_bar.geometry().bottom()
+        assert dialog.start_button.y() == dialog.stop_button.y() == dialog.cancel_button.y()
         with patch.object(refresh.json, "load", side_effect=record_load):
             QtCore.QTimer.singleShot(0, dialog.start_button.click)
             assert dialog.exec() == QtWidgets.QDialog.Accepted
@@ -92,7 +97,7 @@ def test_incremental_refresh_and_cancel(tmp_path):
         assert not dialog.worker_threads_spinbox.isEnabled()
         assert not dialog.start_button.isEnabled()
         assert dialog.progress_bar.value() == 1001
-        assert "4 worker threads" in dialog.progress_bar.format()
+        assert dialog.progress_bar.format() == "%v / %m jobs loaded"
         assert [window.jobQueueList.item(i).data(JobDataRole.JobNameRole)
                 for i in range(1001)] == discovery_order
         assert window.jobQueueList.currentItem().data(JobDataRole.JobNameRole) == "job-500"

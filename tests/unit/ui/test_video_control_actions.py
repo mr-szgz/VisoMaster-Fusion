@@ -1230,7 +1230,7 @@ class _FakeProgressDialog(QObject):
         self.processing_stopped = MagicMock()
         self.frame_processed = MagicMock()
         self.update_runtime = MagicMock()
-        self.set_item_progress = lambda completed, total: self.setValue(self.item_progress_base + int(completed / total * 1000))
+        self.set_item_progress = MagicMock(side_effect=lambda completed, total: self.setValue(self.item_progress_base + int(completed / total * 1000)))
         self.deleteLater = MagicMock()
         _FakeProgressDialog.instances.append(self)
 
@@ -2012,6 +2012,11 @@ def test_process_batch_images_stop_or_cancel_video_ends_batch(
 
     if skip:
         assert record_video.call_count == (0 if auto_skip else 2)
+        if not auto_skip:
+            assert [call.args for call in _FakeProgressDialog.instances[-1].set_item_progress.call_args_list] == [
+                (rendered_frames, 20 if ffmpeg else 10),
+                (rendered_frames, 20 if ffmpeg else 10),
+            ]
         assert saved_media == (["E:/media/video_1.mp4", "E:/media/video_2.mp4"] if save_skipped else [])
         assert refresh_jobs.call_count == (2 if save_skipped else 0)
         expected_pairs = [] if frame_zero or auto_skip or not rendered_frames else [[3 if ffmpeg else 5, 9]]

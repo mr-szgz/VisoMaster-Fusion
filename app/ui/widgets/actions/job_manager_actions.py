@@ -2083,6 +2083,9 @@ def load_job_settings(main_window: "MainWindow", job_data: dict):
         # 4. Load markers.
         _load_job_markers(main_window, job_data)
 
+        if main_window.job_progress_dialog is not None:
+            main_window.job_progress_dialog.apply_parameter_overrides()
+
         # Calculate assigned_input_embedding here for KV injection
         for face_id, target_face_button in main_window.target_faces.items():
             print(
@@ -2169,7 +2172,12 @@ def handle_batch_completion(main_window: "MainWindow"):
 
         # --- Restore Workspace from Snapshot ---
         snapshot = getattr(main_window, "workspace_snapshot_before_batch", None)
-        if snapshot:
+        if main_window.job_processor.processing_timed_out:
+            print(
+                "[ERROR] Workspace restoration skipped after processing timeout. "
+                "Snapshot retained; restart the application before processing again."
+            )
+        elif snapshot:
             print("[INFO] Found workspace snapshot. Restoring...")
             _restore_workspace_from_snapshot(main_window, snapshot)
             main_window.workspace_snapshot_before_batch = None
@@ -2312,6 +2320,12 @@ def start_job_processor(
     main_window.job_processor.set_stop_after_current(
         dialog.stop_after_completion_checkbox.isChecked()
     )
+    dialog.stop_on_job_errors_checkbox.toggled.connect(
+        main_window.job_processor.set_stop_on_job_errors
+    )
+    main_window.job_processor.set_stop_on_job_errors(
+        dialog.stop_on_job_errors_checkbox.isChecked()
+    )
     dialog.stop_after_processing_checkbox.toggled.connect(
         lambda: main_window.job_processor.set_processing_limit(
             dialog.stop_after_processing_checkbox.isChecked(), dialog.stop_after_processing_spinbox.value()
@@ -2325,6 +2339,8 @@ def start_job_processor(
     main_window.job_processor.set_processing_limit(
         dialog.stop_after_processing_checkbox.isChecked(), dialog.stop_after_processing_spinbox.value()
     )
+    dialog.renderLimitReached.connect(main_window.job_processor.set_render_limit_reached)
+    dialog.update_render_limit()
     main_window.job_processor.queue_ready_signal.connect(dialog.queue_ready)
     main_window.job_processor.job_started_signal.connect(dialog.job_started)
     main_window.job_processor.job_completed_signal.connect(dialog.job_completed)
@@ -2428,6 +2444,8 @@ class JobProcessor(QThread):
         )
         self.batch_cancelled = False
         self.batch_stopped = False
+        self.processing_timed_out = False
+        self.error_skip_requested = False
         self.ui_operation_depth = 0
         self.batch_completion_pending = False
         self.skipped_jobs: list[str] = []  # Store jobs that fail pre-flight checks
@@ -2444,6 +2462,8 @@ class JobProcessor(QThread):
         self.cancel_requested_event = threading.Event()
         self.stop_requested_event = threading.Event()
         self.stop_after_current_event = threading.Event()
+        self.render_limit_reached_event = threading.Event()
+        self.stop_on_job_errors_event = threading.Event()
         self.processing_limit = (False, 100)
         self.skip_requested_event = threading.Event()
 
@@ -2593,6 +2613,18 @@ class JobProcessor(QThread):
     def set_processing_limit(self, enabled, limit):
         self.processing_limit = (enabled, limit)
 
+    def set_render_limit_reached(self, reached):
+        if reached:
+            self.render_limit_reached_event.set()
+        else:
+            self.render_limit_reached_event.clear()
+
+    def set_stop_on_job_errors(self, checked):
+        if checked:
+            self.stop_on_job_errors_event.set()
+        else:
+            self.stop_on_job_errors_event.clear()
+
     def _read_job_file(self, job_name: str) -> dict | None:
         """Reads and parses a job's JSON file."""
         data_filename = self.jobs_dir / f"{job_name}.json"
@@ -2672,12 +2704,16 @@ class JobProcessor(QThread):
                 self.analysis_result_signal.emit(
                     job_name, "Job file could not be read or parsed."
                 )
+                if self.stop_on_job_errors_event.is_set():
+                    return None
                 continue  # Skip to the next job
 
             if not is_job_valid:
                 print(f"[WARN] Skipping job '{job_name}'. Reason: {skip_reason}")
                 self.skipped_jobs.append(f"{job_name}: {skip_reason}")
                 self.analysis_result_signal.emit(job_name, skip_reason)
+                if self.stop_on_job_errors_event.is_set():
+                    return None
                 continue  # Skip this job
 
             # --- 2. Job is valid, now COLLECT unique assets ---
@@ -2790,7 +2826,23 @@ class JobProcessor(QThread):
 
     @Slot()
     def stop_job_recording(self):
-        self.run_ui_operation(self.main_window.video_processor.stop_processing)
+        if self.cancel_requested_event.is_set() or self.stop_requested_event.is_set() or self.skip_requested_event.is_set():
+            return
+        processor = self.main_window.video_processor
+        if self.stop_on_job_errors_event.is_set():
+            self.run_ui_operation(processor.stop_processing)
+            return
+        dialog = self.main_window.job_progress_dialog
+        self.error_skip_requested = True
+        save_partial = dialog.save_partial_on_skip_checkbox.isChecked()
+        if (
+            dialog.update_partial_jobs_checkbox.isChecked()
+            and processor.last_displayed_frame is not None
+            and 0 < processor.media_pipeline.absolute_frames_processed < dialog.total_frames
+        ):
+            self.run_ui_operation(self.request_skip_and_update, save_partial)
+        else:
+            self.run_ui_operation(self.request_skip, save_partial)
 
     def _trigger_and_wait_for_processing(self, job_name: str) -> bool:
         """
@@ -2818,7 +2870,7 @@ class JobProcessor(QThread):
                 return False
             error_msg = "Timeout waiting for processing to start signal."
             print(f"[ERROR] {error_msg}")
-            QMetaObject.invokeMethod(self, "stop_job_recording", Qt.QueuedConnection)
+            QMetaObject.invokeMethod(self, "stop_job_recording", Qt.BlockingQueuedConnection)
             self.job_failed_signal.emit(job_name, error_msg)
             return False  # Failure
 
@@ -2850,7 +2902,7 @@ class JobProcessor(QThread):
             except Exception as e:
                 error_msg = f"Heartbeat wait error: {e}"
                 print(f"[ERROR] {error_msg}")
-                self.main_window.video_processor.stop_processing()  # Force stop
+                QMetaObject.invokeMethod(self, "stop_job_recording", Qt.BlockingQueuedConnection)
                 self.job_failed_signal.emit(job_name, error_msg)
                 return False  # Failure
 
@@ -2873,7 +2925,30 @@ class JobProcessor(QThread):
                 # Watchdog timed out!
                 error_msg = f"Job frozen. No heartbeat received in {self.JOB_HEARTBEAT_WATCHDOG_TIMEOUT} seconds."
                 print(f"[ERROR] {error_msg}")
-                self.main_window.video_processor.stop_processing()  # Force stop
+                self.processing_timed_out = True
+                video_processor = self.main_window.video_processor
+                # Shutdown clears these references even when its bounded joins time out.
+                processing_threads = [
+                    video_processor.feeder_thread,
+                    video_processor.detector_thread,
+                    video_processor.worker_pool_manager.current_single_frame_worker,
+                    *video_processor.worker_pool_manager.worker_threads,
+                ]
+                QMetaObject.invokeMethod(
+                    self, "stop_job_recording", Qt.BlockingQueuedConnection
+                )
+                live_threads = [
+                    thread.name for thread in processing_threads
+                    if thread is not None and thread.is_alive()
+                ]
+                if live_threads:
+                    self.batch_stopped = True
+                    self.stop_requested_event.set()
+                    error_msg += (
+                        " Shutdown incomplete; batch stopped because workers are still running: "
+                        + ", ".join(live_threads)
+                    )
+                    print(f"[ERROR] {error_msg}")
                 self.job_failed_signal.emit(job_name, error_msg)
                 return False  # Failure
 
@@ -2888,8 +2963,8 @@ class JobProcessor(QThread):
         processing_error = getattr(
             self.main_window.video_processor, "last_processing_error", None
         )
-        if processing_error and not (
-            self.skip_requested_event.is_set() or self.stop_requested_event.is_set()
+        if processing_error and not self.stop_requested_event.is_set() and (
+            self.error_skip_requested or not self.skip_requested_event.is_set()
         ):
             self.job_failed_signal.emit(job_name, processing_error)
             return False
@@ -2952,6 +3027,7 @@ class JobProcessor(QThread):
 
         # --- 3. Process each job with lightweight loading ---
         processed_count = 0
+        had_job_errors = False
         for job_index, job_data in enumerate(self.job_data_list, 1):
             if self.stop_requested_event.is_set():
                 break
@@ -2962,7 +3038,9 @@ class JobProcessor(QThread):
             job_name = job_data.get("job_name_internal", "Unknown")
             self.current_job_name = job_name
             self.skip_requested_event.clear()
+            self.error_skip_requested = False
             self.job_started_signal.emit(job_name, job_index)
+            job_failed = False
             print(f"[INFO] Beginning processing on job: {job_name}")
 
             # --- 3a. Load lightweight settings for this job ---
@@ -2981,12 +3059,12 @@ class JobProcessor(QThread):
                 error_msg = f"Timeout waiting for job settings '{job_name}' to load."
                 print(f"[ERROR] {error_msg}")
                 self.job_failed_signal.emit(job_name, error_msg)
-                break  # Abort batch, batch_succeeded remains False
+                job_failed = True
 
             # --- 3b. Trigger video processing and wait ---
             if self.stop_requested_event.is_set():
                 break
-            if not self._trigger_and_wait_for_processing(job_name):
+            if not job_failed and not self._trigger_and_wait_for_processing(job_name):
                 if self.stop_requested_event.is_set():
                     break
                 if self.cancel_requested_event.is_set():
@@ -2994,12 +3072,16 @@ class JobProcessor(QThread):
                         f"[INFO] Batch cancelled during processing of job '{job_name}'."
                     )
                     break
-                # Job failed (timeout or other error)
-                print(
-                    f"[ERROR] Job '{job_name}' failed during processing. Aborting batch."
-                )
-                # job_failed_signal was already emitted in the helper function
-                break  # Abort batch, batch_succeeded remains False
+                job_failed = True
+
+            if self.cancel_requested_event.is_set():
+                break
+            if job_failed:
+                had_job_errors = True
+                if self.stop_on_job_errors_event.is_set() and not self.skip_requested_event.is_set():
+                    print(f"[ERROR] Job '{job_name}' failed. Stopping batch.")
+                    break
+                print(f"[ERROR] Job '{job_name}' failed. Skipping to the next job.")
 
             print(f"[INFO] Processing finished for job: {self.current_job_name}")
             if self.stop_requested_event.is_set():
@@ -3008,7 +3090,10 @@ class JobProcessor(QThread):
             # --- 3c. Move job file to 'completed' ---
             job_path = os.path.join(self.jobs_dir, f"{job_name}.json")
             completed_path = os.path.join(self.completed_dir, f"{job_name}.json")
-            if self.skip_requested_event.is_set():
+            if job_failed:
+                self.skipped_jobs.append(f"{job_name}: Skipped after job error")
+                self.job_skipped_signal.emit(job_name)
+            elif self.skip_requested_event.is_set():
                 self.skipped_jobs.append(f"{job_name}: Skipped by user")
                 self.job_skipped_signal.emit(job_name)
             elif os.path.exists(job_path):
@@ -3021,7 +3106,11 @@ class JobProcessor(QThread):
                     error_msg = f"Failed to move job {job_name} to completed: {e}"
                     print(f"[ERROR] {error_msg}")
                     self.job_failed_signal.emit(job_name, error_msg)
-                    break  # Abort batch, batch_succeeded remains False
+                    had_job_errors = True
+                    if self.stop_on_job_errors_event.is_set():
+                        break
+                    self.skipped_jobs.append(f"{job_name}: {error_msg}")
+                    self.job_skipped_signal.emit(job_name)
             else:
                 print(
                     f"[WARN] Job file not found after processing: {job_path}. Skipping move."
@@ -3042,13 +3131,16 @@ class JobProcessor(QThread):
                 error_msg = f"Timeout waiting for job settings '{job_name}' to clear."
                 print(f"[ERROR] {error_msg}")
                 self.job_failed_signal.emit(job_name, error_msg)
-                break  # Abort batch, batch_succeeded remains False
+                had_job_errors = True
+                if self.stop_on_job_errors_event.is_set():
+                    break
 
-            print(f"[INFO] Job '{job_name}' fully completed. Moving to next.")
+            print(f"[INFO] Finished handling job '{job_name}'. Moving to next.")
             self.msleep(1000)  # Small delay between jobs
             limit_enabled, limit = self.processing_limit
             if (
                 self.stop_after_current_event.is_set() or (limit_enabled and processed_count >= limit)
+                or self.render_limit_reached_event.is_set()
             ) and not self.cancel_requested_event.is_set():
                 self.batch_stopped = True
                 break
@@ -3056,8 +3148,8 @@ class JobProcessor(QThread):
             # This 'else' block executes ONLY if the 'for' loop
             # completes without a 'break' statement.
             if not self.cancel_requested_event.is_set() and not self.stop_requested_event.is_set():
-                print("[INFO] JobProcessor loop completed without errors.")
-                self.batch_succeeded = True
+                print("[INFO] JobProcessor reached the end of the queue.")
+                self.batch_succeeded = not had_job_errors
 
         # --- 4. Finished ---
         print("[INFO] Finished processing all jobs loop.")

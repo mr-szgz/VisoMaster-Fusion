@@ -114,8 +114,7 @@ def test_job_transition_and_final_report(tmp_path):
                     QtTest.QTest.qWait(10)
                 assert window.job_processor is None
                 assert worker.wait(1000)
-                assert events == (["assets", "load A", "clear", "load B", "restore"] if fail_second
-                                  else ["assets", "load A", "clear", "load B", "clear", "restore"])
+                assert events == ["assets", "load A", "clear", "load B", "clear", "restore"]
                 assert len(reports) == 1
                 assert reports[0][0] == ("Job Processing Failed" if fail_second else "Job Processing Complete")
                 assert ("B: test processing failure" in reports[0][1]) == fail_second
@@ -219,7 +218,7 @@ def test_interruption_waits_for_ui_handoffs_before_restoring(tmp_path):
                             QtCore.QTimer.singleShot(0, button.click)
                         QtTest.QTest.qWait(120)
                         assert window.job_processor.ui_operation_depth > 0
-                        if command == "timeout":
+                        if command == "timeout" and handoff != "record":
                             assert window.job_processor.wait(1000)
                             app.processEvents()
                             assert errors and "Timeout" in errors[0][1]
@@ -290,6 +289,7 @@ def test_interruption_waits_for_ui_handoffs_before_restoring(tmp_path):
                                      "JOB_SETTINGS_CLEAR_TIMEOUT", "JOB_START_TIMEOUT"):
                             stack.enter_context(patch.object(actions.JobProcessor, name, 0.03))
                     actions.start_job_processor(window, ["A", "B"])
+                    window.job_progress_dialog.stop_on_job_errors_checkbox.setChecked(True)
                     worker = window.job_processor
                     errors = []
                     worker.job_failed_signal.connect(lambda name, error: errors.append((name, error)))
@@ -298,6 +298,8 @@ def test_interruption_waits_for_ui_handoffs_before_restoring(tmp_path):
                         QtTest.QTest.qWait(10)
                     assert window.job_processor is None, (phase, command, events)
                     assert worker.wait(1000)
+                    if command == "timeout":
+                        assert errors and "Timeout" in errors[0][1]
                     assert events[-2:] == ["restore", "report"]
                     assert window.scope == "original"
                     assert window.workspace_snapshot_before_batch is None
@@ -557,6 +559,7 @@ def test_active_queue_controls_and_empty_output(tmp_path, segmented):
                 ):
                     stack.enter_context(patch.object(target, name, value))
                 actions.start_job_processor(window, ["A", "B"])
+                window.job_progress_dialog.stop_on_job_errors_checkbox.setChecked(mode in ("empty", "timeout"))
                 worker = window.job_processor
                 worker.job_failed_signal.connect(lambda name, error: errors.append((name, error)))
                 deadline = time.monotonic() + 6

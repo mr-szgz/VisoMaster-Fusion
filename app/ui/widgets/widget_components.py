@@ -2346,17 +2346,21 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.media_report_layout = QtWidgets.QGridLayout()
         self.media_report_layout.setColumnStretch(1, 1)
         self.media_report_labels = {}
-        for row, field in enumerate(("Embedding:", "Frames:", "Frame rate:", "Length:", "f/s:", "Item progress:")):
+        for row, field in enumerate(("Embedding:", "Frames:", "Frame rate:", "Length:", "frame/s:", "Item progress:", "Total Render:")):
             field_label = QtWidgets.QLabel(field, self.media_report)
             value_label = QtWidgets.QLabel(self.media_report)
             value_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
             self.media_report_layout.addWidget(field_label, row, 0)
             self.media_report_layout.addWidget(value_label, row, 1)
             self.media_report_labels[field] = (field_label, value_label)
-        self.media_report_labels["f/s:"][1].setText("0.00")
+        self.media_report_labels["frame/s:"][1].setText("0.00")
         self.media_report_labels["Item progress:"][1].setText("0.0%")
+        self.media_report_labels["Total Render:"][1].setText("00:00:00")
+        self.total_render_seconds = 0.0
+        self.item_render_seconds = 0.0
+        self.render_frame_rate = 0.0
         self.eta_label = QtWidgets.QLabel("ETA: --:--:--", self.media_report)
-        self.media_report_layout.addWidget(self.eta_label, row, 2)
+        self.media_report_layout.addWidget(self.eta_label, row - 1, 2)
         self.remaining_frames = 0
         self.processing_rate_clock = QtCore.QElapsedTimer()
         self.processed_frames_since_update = 0
@@ -2431,7 +2435,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         if self.processing_rate_clock.isValid():
             elapsed_seconds = self.processing_rate_clock.nsecsElapsed() / 1_000_000_000
             rate = self.processed_frames_since_update / elapsed_seconds
-            self.media_report_labels["f/s:"][1].setText(f"{rate:.2f}")
+            self.media_report_labels["frame/s:"][1].setText(f"{rate:.2f}")
             if self.remaining_frames == 0:
                 self.eta_label.setText("ETA: 00:00:00")
             elif rate > 0:
@@ -2447,7 +2451,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
     def processing_started(self):
         self.processed_frames_since_update = 0
         self.processing_rate_clock.start()
-        self.media_report_labels["f/s:"][1].setText("0.00")
+        self.media_report_labels["frame/s:"][1].setText("0.00")
         self.eta_label.setText("ETA: --:--:--")
 
     @QtCore.Slot()
@@ -2459,11 +2463,16 @@ class ProgressDialog(QtWidgets.QProgressDialog):
     def processing_stopped(self):
         self.processing_rate_clock.invalidate()
         self.processed_frames_since_update = 0
-        self.media_report_labels["f/s:"][1].setText("0.00")
+        self.media_report_labels["frame/s:"][1].setText("0.00")
         if self.remaining_frames != 0:
             self.eta_label.setText("ETA: --:--:--")
 
     def set_item_progress(self, completed_frames, total_frames):
+        if self.render_frame_rate > 0:
+            self.item_render_seconds = completed_frames / self.render_frame_rate
+        hours, remainder = divmod(int(self.total_render_seconds + self.item_render_seconds), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        self.media_report_labels["Total Render:"][1].setText(f"{hours:02}:{minutes:02}:{seconds:02}")
         fraction = completed_frames / total_frames
         self.remaining_frames = total_frames - completed_frames
         if completed_frames == total_frames:
@@ -2555,6 +2564,9 @@ class ProgressDialog(QtWidgets.QProgressDialog):
 
     def set_media_properties(self, embedding_names, total_frames, frame_rate):
         self.processing_stopped()
+        self.total_render_seconds += self.item_render_seconds
+        self.item_render_seconds = 0.0
+        self.render_frame_rate = frame_rate
         self.item_progress_base = self.value() // 1000 * 1000
         self.remaining_frames = total_frames
         self.eta_label.setText("ETA: --:--:--")

@@ -35,7 +35,10 @@ def test_job_progress_skip_update_states_and_spacing(tmp_path, theme, scale):
         row = dialog.stop_after_processing_row
         assert row.height() == row.sizeHint().height()
         assert row.y() - dialog.save_partial_on_skip_checkbox.geometry().bottom() <= dialog.layout().spacing() + 1
-        assert dialog.suppress_notifications_checkbox.y() - row.geometry().bottom() <= dialog.layout().spacing() + 1
+        render_row = dialog.stop_after_rendering_row
+        assert render_row.height() == render_row.sizeHint().height()
+        assert render_row.y() - row.geometry().bottom() <= dialog.layout().spacing() + 1
+        assert dialog.suppress_notifications_checkbox.y() - render_row.geometry().bottom() <= dialog.layout().spacing() + 1
         assert dialog.skip_update_button.isHidden()
         assert dialog.stop_update_button.isHidden()
         assert dialog.skip_button.isVisible()
@@ -137,9 +140,26 @@ def test_job_progress_checkbox_preferences(tmp_path):
         assert not initial.suppress_notifications_checkbox.isChecked()
         assert not initial.update_partial_jobs_checkbox.isChecked()
         assert not initial.stop_after_processing_checkbox.isChecked()
+        assert not initial.stop_on_job_errors_checkbox.isChecked()
         assert initial.stop_after_processing_spinbox.value() == 100
         assert not initial.stop_after_processing_spinbox.isEnabled()
         initial.finish()
+        from types import SimpleNamespace
+        initial.started_job_names = {"failed", "done"}
+        initial.completed_job_names = {"done"}
+        initial.skipped_job_names = {"failed"}
+        initial.job_errors = {"failed": "No heartbeat received"}
+        initial.show_result(SimpleNamespace(
+            jobs=["failed", "done"], skipped_jobs=["failed: Skipped after job error"],
+            batch_cancelled=False, batch_stopped=False, batch_succeeded=False,
+            processing_timed_out=True, completed_dir="completed",
+        ), "Process All")
+        assert initial.report_labels["Failed:"][1].text() == "1"
+        assert initial.report_labels["Skipped:"][1].text() == "1"
+        assert initial.report_labels["Completed:"][1].text() == "1"
+        assert initial.progress_bar.value() == 2
+        assert "Workspace restoration skipped" in initial.status_label.text()
+        assert "No heartbeat received" in initial.detail_text.toPlainText()
         for checked in (True, False):
             settings.setValue("stop_after_completion_checkbox", True)
             dialog = job_progress_dialog.JobProgressDialog(None, {})
@@ -152,6 +172,7 @@ def test_job_progress_checkbox_preferences(tmp_path):
             dialog.suppress_notifications_checkbox.setChecked(checked)
             dialog.update_partial_jobs_checkbox.setChecked(checked)
             dialog.stop_after_processing_checkbox.setChecked(checked)
+            dialog.stop_on_job_errors_checkbox.setChecked(checked)
             dialog.stop_after_processing_spinbox.setValue(25)
             assert dialog.stop_after_processing_spinbox.isEnabled() == checked
             dialog.show()
@@ -169,9 +190,11 @@ def test_job_progress_checkbox_preferences(tmp_path):
             assert reopened.skip_update_button.isHidden() != checked
             assert reopened.stop_update_button.isHidden() != checked
             assert reopened.stop_after_processing_checkbox.isChecked() == checked
+            assert reopened.stop_on_job_errors_checkbox.isChecked() == checked
             assert reopened.stop_after_processing_spinbox.value() == 25
             assert reopened.stop_after_processing_spinbox.isEnabled() == checked
             reopened.stopping()
+            assert not reopened.stop_on_job_errors_checkbox.isEnabled()
             assert not reopened.stop_after_processing_row.isEnabled()
             assert settings.value("save_partial_on_skip_checkbox", type=bool) == checked
             reopened.finish()
@@ -364,6 +387,11 @@ def test_job_progress_lifecycle(tmp_path):
                         active.click()
                     worker = window.job_processor
                     dialog = window.job_progress_dialog
+                    assert not worker.stop_on_job_errors_event.is_set()
+                    dialog.stop_on_job_errors_checkbox.setChecked(True)
+                    assert worker.stop_on_job_errors_event.is_set()
+                    dialog.stop_on_job_errors_checkbox.setChecked(False)
+                    assert not worker.stop_on_job_errors_event.is_set()
                     assert worker.jobs == (["B"] if selected else ["A", "B"])
                     assert active.isEnabled() and not other.isEnabled()
                     assert window.job_processing_button is active
@@ -459,6 +487,7 @@ def test_job_progress_lifecycle(tmp_path):
                 jobs=["Done", "Active", "Skipped", "Pending"],
                 skipped_jobs=["Skipped: Missing media"],
                 batch_cancelled=cancelled, batch_stopped=False, batch_succeeded=False,
+                processing_timed_out=False,
                 completed_dir=root / "completed",
             )
             dialog.finish()
@@ -541,6 +570,88 @@ def test_job_progress_live_counts(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_job_total_render_uses_each_jobs_fps(tmp_path):
+    script = textwrap.dedent('''
+        import sys
+        from types import SimpleNamespace
+        from PySide6 import QtCore, QtWidgets
+        from app.ui.widgets import job_progress_dialog
+        from app.ui.widgets.job_list_widgets import JobDataRole
+
+        app = QtWidgets.QApplication([])
+        job_progress_dialog.settings_group = lambda namespace, parent: QtCore.QSettings(
+            sys.argv[1], QtCore.QSettings.IniFormat, parent
+        )
+        item = QtWidgets.QListWidgetItem("A")
+        item.setData(JobDataRole.EmbeddingNamesRole, [])
+        window = QtWidgets.QMainWindow()
+        video = SimpleNamespace(is_processing_segments=False, next_frame_to_display=0,
+                                last_displayed_frame=0,
+                                media_pipeline=SimpleNamespace(absolute_frames_processed=0))
+        window.video_processor = video
+        dialog = job_progress_dialog.JobProgressDialog(window, {"A": item})
+        total = dialog.report_labels["Total Render:"][1]
+        assert total.text() == "00:00:00"
+        reached = []
+        dialog.renderLimitReached.connect(reached.append)
+        assert not dialog.stop_after_rendering_timeedit.isEnabled()
+        dialog.stop_after_rendering_timeedit.setTime(QtCore.QTime(0, 0, 2))
+        dialog.stop_after_rendering_checkbox.setChecked(True)
+        assert dialog.stop_after_rendering_timeedit.isEnabled()
+        assert reached[-1] is False
+        for frames, fps, expected in (
+            (25, 25, "00:00:01"),
+            (15, 30, "00:00:01"),
+            (15, 29.97, "00:00:02"),
+            (0, 24, "00:00:02"),
+            (1, None, "00:00:02"),
+            (91500, 25, "01:01:02"),
+        ):
+            item.setData(JobDataRole.FrameCountRole, frames + 100)
+            item.setData(JobDataRole.FrameRateRole, fps)
+            video.max_frame_number = frames + 99
+            video.media_pipeline.absolute_frames_processed = 0
+            dialog.job_started("A", 1)
+            dialog.processing_started()
+            video.media_pipeline.absolute_frames_processed = frames // 2
+            dialog.update_runtime()
+            # Stopping flushes the final frames since the last timer update.
+            video.media_pipeline.absolute_frames_processed = frames
+            dialog.processing_stopped()
+            assert total.text() == expected
+            assert reached[-1] == (expected >= "00:00:02")
+            dialog.update_runtime()
+            assert total.text() == expected
+        dialog.show()
+        app.processEvents()
+        assert total.y() > dialog.report_labels["Skipped:"][1].geometry().bottom()
+        assert total.geometry().bottom() < dialog.lock_parameters_checkbox.y()
+        dialog.stop_after_rendering_timeedit.setTime(QtCore.QTime(2, 0, 0))
+        assert reached[-1] is False
+        dialog.stop_after_rendering_timeedit.setTime(QtCore.QTime(0, 12, 0))
+        assert reached[-1] is True
+        dialog.stop_after_rendering_checkbox.setChecked(False)
+        assert reached[-1] is False
+        dialog.stop_after_rendering_checkbox.setChecked(True)
+        dialog.finish()
+        assert not dialog.stop_after_rendering_row.isEnabled()
+        assert total.text() == "01:01:02"
+        fresh = job_progress_dialog.JobProgressDialog(window, {})
+        assert fresh.report_labels["Total Render:"][1].text() == "00:00:00"
+        assert fresh.stop_after_rendering_checkbox.isChecked()
+        assert fresh.stop_after_rendering_timeedit.text() == "00:12:00"
+        fresh.finish()
+    ''')
+    result = subprocess.run(
+        [sys.executable, "-u", "-c", script, str(tmp_path / "render.ini")],
+        cwd=Path(__file__).resolve().parents[3],
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Traceback" not in result.stderr, result.stderr
+
+
 def test_job_progress_eta(tmp_path):
     script = textwrap.dedent('''
         import sys
@@ -572,7 +683,7 @@ def test_job_progress_eta(tmp_path):
         for _ in range(20):
             dialog.frame_processed()
         dialog.update_runtime()
-        assert dialog.report_labels["f/s:"][1].text() == "10.00"
+        assert dialog.report_labels["frame/s:"][1].text() == "10.00"
         assert dialog.eta_label.text() == "ETA: 01:01:00"
         dialog.update_runtime()
         assert dialog.eta_label.text() == "ETA: --:--:--"
@@ -681,7 +792,7 @@ def test_job_notification_suppression(tmp_path):
             dialog.finish()
             dialog.show_result(SimpleNamespace(
                 jobs=[], skipped_jobs=[], batch_cancelled=False, batch_stopped=False,
-                batch_succeeded=True,
+                batch_succeeded=True, processing_timed_out=False,
             ), "Process All")
             assert dialog.isVisible()
             assert dialog.report_labels["Completed:"][1].text() == "0"

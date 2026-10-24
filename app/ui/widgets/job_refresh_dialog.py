@@ -88,10 +88,10 @@ class JobRefreshDialog(QtWidgets.QDialog):
             partial(self.dialog_settings.setValue, "worker_threads")
         )
         options.addRow("Worker threads:", self.worker_threads_spinbox)
-        layout.addLayout(options)
-        self.status_label = QtWidgets.QLabel("Choose worker threads, then start refresh.", self)
+        self.status_label = QtWidgets.QLabel(self)
         self.status_label.setTextFormat(QtCore.Qt.PlainText)
         self.status_label.setWordWrap(True)
+        self.status_label.hide()
         layout.addWidget(self.status_label)
         self.progress_bar = QtWidgets.QProgressBar(self)
         self.progress_bar.setRange(0, 1)
@@ -100,10 +100,11 @@ class JobRefreshDialog(QtWidgets.QDialog):
             self.setWindowTitle("Checking for Jobs")
             self.progress_bar.setFormat("%v / %m jobs checked")
         layout.addWidget(self.progress_bar)
+        layout.addLayout(options)
         self.start_button = QtWidgets.QPushButton("Start refresh", self)
         self.start_button.clicked.connect(self.start_scan)
-        layout.addWidget(self.start_button)
         buttons = QtWidgets.QHBoxLayout()
+        buttons.addWidget(self.start_button)
         self.stop_button = QtWidgets.QPushButton("Stop", self)
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self.stop_scan)
@@ -137,11 +138,8 @@ class JobRefreshDialog(QtWidgets.QDialog):
         if not self.preserve_existing:
             self.main_window.jobQueueList.clear()
         self.progress_bar.setRange(0, 0)
-        mode = "checked" if self.preserve_existing else "loaded"
-        self.progress_bar.setFormat(
-            f"%v / %m jobs {mode} · {self.worker.worker_count} worker threads"
-        )
         self.status_label.setText("Scanning saved jobs…")
+        self.status_label.show()
         self.worker.start()
 
     @QtCore.Slot(int)
@@ -189,7 +187,7 @@ class JobRefreshDialog(QtWidgets.QDialog):
         self.stop_requested = True
         self.worker.requestInterruption()
         self.stop_button.setEnabled(False)
-        self.status_label.setText("Stopping after active file operations finish…")
+        self.status_label.setText("Stopping…")
 
     @QtCore.Slot()
     def scan_finished(self):
@@ -198,7 +196,7 @@ class JobRefreshDialog(QtWidgets.QDialog):
         if self.stop_requested and not self.cancelled:
             self.start_button.setEnabled(True)
             self.worker_threads_spinbox.setEnabled(True)
-            self.status_label.setText("Stopped. Click Start refresh to run again.")
+            self.status_label.setText("Stopped")
         else:
             self.done(QtWidgets.QDialog.Rejected if self.cancelled else QtWidgets.QDialog.Accepted)
 
@@ -210,7 +208,7 @@ class JobRefreshDialog(QtWidgets.QDialog):
         self.worker.requestInterruption()
         self.cancel_button.setEnabled(False)
         self.stop_button.setEnabled(False)
-        self.status_label.setText("Cancelling after active file operations finish…")
+        self.status_label.setText("Cancelling…")
 
     def closeEvent(self, event):
         event.ignore()

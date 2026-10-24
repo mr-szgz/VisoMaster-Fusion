@@ -181,6 +181,15 @@ def update_parameter(
     ):
         old_parameter_value = main_window.current_widget_parameters[parameter_name]
 
+    # Only live edits enter the queue overlay; widget restoration is batch-suppressed.
+    if (
+        main_window.video_processor.processing
+        and main_window.job_progress_dialog is not None
+        and not main_window._batch_update_in_progress
+        and parameter_value != old_parameter_value
+    ):
+        main_window.job_progress_dialog.record_parameter_edit(parameter_name, parameter_value)
+
     # --- Update the data dictionaries ---
 
     # Update marker parameters if applicable

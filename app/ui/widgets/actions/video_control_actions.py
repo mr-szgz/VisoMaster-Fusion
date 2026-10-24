@@ -3189,15 +3189,15 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
                         QtCore.QThread.msleep(1)  # 1ms sleep
 
+                    # 4. At this point, record_video has completed (or been aborted)
+                    progress_dialog.set_item_progress(
+                        main_window.video_processor.frames_written, total_recording_frames
+                    )
                     if progress_dialog.skip_requested:
                         skipped_count += 1
                         progress_dialog.setValue((processed_count + failed_count + skipped_count) * 1000)
                         continue
 
-                    # 4. At this point, record_video has completed (or been aborted)
-                    progress_dialog.set_item_progress(
-                        main_window.video_processor.frames_written, total_recording_frames
-                    )
                     # We must check *again* if the loop was exited due to cancellation
                     # to avoid incorrectly incrementing the 'processed_count'.
                     if not progress_dialog.confirmedCanceled():

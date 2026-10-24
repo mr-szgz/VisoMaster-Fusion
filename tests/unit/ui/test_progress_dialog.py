@@ -660,6 +660,38 @@ def test_skip_requires_confirmation(progress_dialog_module, qapp, monkeypatch, r
 
 
 @pytest.mark.qt
+def test_batch_total_render_uses_each_items_fps(progress_dialog_module, qapp):
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 6000)
+    total = dialog.media_report_labels["Total Render:"][1]
+    assert total.text() == "00:00:00"
+    for frames, fps, expected in (
+        (25, 25, "00:00:01"),
+        (15, 30, "00:00:01"),
+        (15, 29.97, "00:00:02"),
+        (0, 24, "00:00:02"),
+        (1, 0, "00:00:02"),
+        (91500, 25, "01:01:02"),
+    ):
+        dialog.set_media_properties([], frames + 100, fps)
+        dialog.processing_started()
+        dialog.set_item_progress(frames, frames + 100)
+        assert total.text() == expected
+        # Repeated progress reports and stopping must not count frames twice.
+        dialog.set_item_progress(frames, frames + 100)
+        dialog.processing_stopped()
+        assert total.text() == expected
+    dialog.show()
+    _flush_qt_events(qapp)
+    assert total.y() > dialog.media_report_labels["Item progress:"][1].geometry().bottom()
+    assert dialog.media_report.geometry().bottom() < dialog.remove_completed_checkbox.y()
+    dialog.close_without_confirmation()
+    assert total.text() == "01:01:02"
+    fresh = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 1000)
+    assert fresh.media_report_labels["Total Render:"][1].text() == "00:00:00"
+    fresh.close_without_confirmation()
+
+
+@pytest.mark.qt
 def test_batch_dialog_frame_rate_and_item_progress(progress_dialog_module, qapp):
     dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 3000, total_items=3)
     dialog.setValue(1000)
@@ -676,7 +708,7 @@ def test_batch_dialog_frame_rate_and_item_progress(progress_dialog_module, qapp)
     assert dialog.value() == 1250
     assert dialog.media_report_labels["Frames:"][1].text() == "25 / 100"
     assert dialog.media_report_labels["Item progress:"][1].text() == "25.0%"
-    assert dialog.media_report_labels["f/s:"][1].text() == "12.50"
+    assert dialog.media_report_labels["frame/s:"][1].text() == "12.50"
     assert dialog.eta_label.text() == "ETA: 00:00:06"
     assert dialog.processed_frames_since_update == 0
     clock.restart.assert_called_once()
@@ -693,7 +725,7 @@ def test_batch_dialog_frame_rate_and_item_progress(progress_dialog_module, qapp)
     assert dialog.eta_label.text() == "ETA: 00:00:00"
     dialog.processing_stopped()
     clock.invalidate.assert_called_once()
-    assert dialog.media_report_labels["f/s:"][1].text() == "0.00"
+    assert dialog.media_report_labels["frame/s:"][1].text() == "0.00"
     assert dialog.eta_label.text() == "ETA: 00:00:00"
     clock.isValid.return_value = False
     dialog.set_media_properties([], 1, 0)

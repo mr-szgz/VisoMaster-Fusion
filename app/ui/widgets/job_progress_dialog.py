@@ -11,6 +11,7 @@ class JobProgressDialog(QtWidgets.QDialog):
 
     progressChanged = QtCore.Signal(int, int)
     stopRequested = QtCore.Signal()
+    renderLimitReached = QtCore.Signal(bool)
     cancelRequested = QtCore.Signal()
     skipRequested = QtCore.Signal(bool)
     skipAndUpdateRequested = QtCore.Signal(bool)
@@ -20,6 +21,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.job_items = job_items
         self.is_finished = False
+        self.parameter_overrides = {}
         self.total_jobs = len(job_items)
         self.completed_job_names = set()
         self.skipped_job_names = set()
@@ -31,6 +33,9 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.processed_frames_since_update = 0
         self.completed_frames = 0
         self.total_frames = 0
+        self.total_render_seconds = 0.0
+        self.item_render_seconds = 0.0
+        self.render_frame_rate = 0.0
         self.setWindowTitle("Job Processing")
         self.setObjectName("jobProgressDialog")
         self.setWindowIcon(QtGui.QIcon(":/media/media/visomaster_small.png"))
@@ -53,7 +58,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.report_labels = {}
         for row, field in enumerate((
             "Embedding:", "Frames:", "Frame rate:",
-            "Length:", "f/s:", "Item progress:",
+            "Length:", "frame/s:", "Item progress:",
         )):
             label = QtWidgets.QLabel(field, self)
             value = QtWidgets.QLabel(self)
@@ -63,18 +68,19 @@ class JobProgressDialog(QtWidgets.QDialog):
             report.addWidget(label, row, 0)
             report.addWidget(value, row, 1)
             self.report_labels[field] = (label, value)
-        self.report_labels["f/s:"][1].setText("0.00")
+        self.report_labels["frame/s:"][1].setText("0.00")
         self.report_labels["Item progress:"][1].setText("0.0%")
         self.eta_label = QtWidgets.QLabel("ETA: --:--:--", self)
         report.addWidget(self.eta_label, row, 2)
         layout.addLayout(report)
         metrics = QtWidgets.QFormLayout()
-        for field in ("Completed:", "Failed:", "Skipped:"):
+        for field in ("Completed:", "Failed:", "Skipped:", "Total Render:"):
             label = QtWidgets.QLabel(field, self)
             value = QtWidgets.QLabel("0", self)
             value.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
             metrics.addRow(label, value)
             self.report_labels[field] = (label, value)
+        self.report_labels["Total Render:"][1].setText("00:00:00")
         layout.addLayout(metrics)
         self.detail_text = QtWidgets.QPlainTextEdit(self)
         self.detail_text.setReadOnly(True)
@@ -93,11 +99,25 @@ class JobProgressDialog(QtWidgets.QDialog):
         properties_separator.setFrameShape(QtWidgets.QFrame.HLine)
         properties_separator.setFrameShadow(QtWidgets.QFrame.Sunken)
         layout.addWidget(properties_separator)
+        self.lock_parameters_checkbox = QtWidgets.QCheckBox("Lock Parameters", self)
+        self.lock_parameters_checkbox.setToolTip(
+            "Carry subsequent edits in Swap strength and likeness, Masks, Textures and colors, "
+            "and Blend Adjustments to all faces and markers in following jobs. "
+            "Each job keeps its swapper model. Uncheck to clear carried edits; "
+            "current settings stay unchanged. Applies only to this queue run."
+        )
+        self.lock_parameters_checkbox.toggled.connect(lambda: self.parameter_overrides.clear())
+        layout.addWidget(self.lock_parameters_checkbox)
         self.stop_after_completion_checkbox = QtWidgets.QCheckBox("Stop after current item", self)
         self.stop_after_completion_checkbox.setToolTip(
             "Finish and save the current job, then stop before loading the next job"
         )
         layout.addWidget(self.stop_after_completion_checkbox)
+        self.stop_on_job_errors_checkbox = QtWidgets.QCheckBox("Stop on job errors", self)
+        self.stop_on_job_errors_checkbox.setToolTip(
+            "Stop the queue when a job fails. When unchecked, skip failed jobs and continue."
+        )
+        layout.addWidget(self.stop_on_job_errors_checkbox)
         self.save_partial_on_skip_checkbox = QtWidgets.QCheckBox("Save partial videos", self)
         self.save_partial_on_skip_checkbox.setToolTip(
             "Save the recorded portion before skipping or stopping and updating the job"
@@ -119,6 +139,23 @@ class JobProgressDialog(QtWidgets.QDialog):
         stop_limit_layout.addWidget(self.stop_after_processing_spinbox)
         stop_limit_layout.addStretch()
         layout.addWidget(self.stop_after_processing_row)
+        self.stop_after_rendering_row = QtWidgets.QWidget(self)
+        self.stop_after_rendering_row.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed
+        )
+        render_limit_layout = QtWidgets.QHBoxLayout(self.stop_after_rendering_row)
+        render_limit_layout.setContentsMargins(0, 0, 0, 0)
+        self.stop_after_rendering_checkbox = QtWidgets.QCheckBox("Stop after rendering", self.stop_after_rendering_row)
+        self.stop_after_rendering_checkbox.setToolTip(
+            "Finish and save the current job, then stop when Total Render reaches the selected length"
+        )
+        self.stop_after_rendering_timeedit = QtWidgets.QTimeEdit(self.stop_after_rendering_row)
+        self.stop_after_rendering_timeedit.setDisplayFormat("HH:mm:ss")
+        self.stop_after_rendering_timeedit.setTime(QtCore.QTime(1, 0, 0))
+        render_limit_layout.addWidget(self.stop_after_rendering_checkbox)
+        render_limit_layout.addWidget(self.stop_after_rendering_timeedit)
+        render_limit_layout.addStretch()
+        layout.addWidget(self.stop_after_rendering_row)
         self.suppress_notifications_checkbox = QtWidgets.QCheckBox("Suppress notifications", self)
         self.suppress_notifications_checkbox.setObjectName("suppressBatchNotificationsCheckbox")
         self.suppress_notifications_checkbox.setToolTip("Mute job message alerts and toast notifications")
@@ -133,6 +170,8 @@ class JobProgressDialog(QtWidgets.QDialog):
         for name in (
             "save_partial_on_skip_checkbox", "stop_after_processing_checkbox",
             "suppress_notifications_checkbox", "update_partial_jobs_checkbox",
+            "stop_on_job_errors_checkbox",
+            "stop_after_rendering_checkbox",
         ):
             checkbox = getattr(self, name)
             if self.dialog_settings.contains(name):
@@ -147,6 +186,17 @@ class JobProgressDialog(QtWidgets.QDialog):
         )
         self.stop_after_processing_spinbox.setEnabled(self.stop_after_processing_checkbox.isChecked())
         self.stop_after_processing_checkbox.toggled.connect(self.stop_after_processing_spinbox.setEnabled)
+        if self.dialog_settings.contains("stop_after_rendering"):
+            self.stop_after_rendering_timeedit.setTime(
+                self.dialog_settings.value("stop_after_rendering", type=QtCore.QTime)
+            )
+        self.stop_after_rendering_timeedit.timeChanged.connect(
+            partial(self.dialog_settings.setValue, "stop_after_rendering")
+        )
+        self.stop_after_rendering_timeedit.setEnabled(self.stop_after_rendering_checkbox.isChecked())
+        self.stop_after_rendering_checkbox.toggled.connect(self.stop_after_rendering_timeedit.setEnabled)
+        self.stop_after_rendering_checkbox.toggled.connect(self.update_render_limit)
+        self.stop_after_rendering_timeedit.timeChanged.connect(self.update_render_limit)
         buttons_separator = QtWidgets.QFrame(self)
         buttons_separator.setFrameShape(QtWidgets.QFrame.HLine)
         buttons_separator.setFrameShadow(QtWidgets.QFrame.Sunken)
@@ -198,6 +248,33 @@ class JobProgressDialog(QtWidgets.QDialog):
         if self.dialog_settings.contains("geometry"):
             self.restoreGeometry(self.dialog_settings.value("geometry"))
 
+    def record_parameter_edit(self, name, value):
+        if self.lock_parameters_checkbox.isChecked():
+            from app.ui.widgets.swapper_layout_data import SWAPPER_LAYOUT_DATA
+
+            if any(name in SWAPPER_LAYOUT_DATA[section] for section in (
+                "Swap strength and likeness", "Masks",
+                "Textures and colors", "Blend Adjustments",
+            )):
+                self.parameter_overrides[name] = value
+
+    def apply_parameter_overrides(self):
+        """Overlay only loaded runtime state, using the loader's normalized schema."""
+        if not self.parameter_overrides:
+            return
+        from app.ui.widgets.actions import common_actions
+
+        main_window = self.parentWidget()
+        for parameters in main_window.parameters.values():
+            parameters.update(self.parameter_overrides)
+        for marker in main_window.markers.values():
+            for parameters in marker["parameters"].values():
+                parameters.update(self.parameter_overrides)
+        main_window.current_widget_parameters.update(self.parameter_overrides)
+        # Refresh only edited widgets; other controls retain the normal loader's state.
+        for name, value in self.parameter_overrides.items():
+            common_actions._set_single_widget_value(main_window.parameter_widgets[name], value)
+
     def show_update_job_buttons(self, checked):
         self.skip_update_button.setVisible(checked)
         self.stop_update_button.setVisible(checked)
@@ -226,6 +303,9 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.report_labels["Item progress:"][1].setText("0.0%")
         self.eta_label.setText("ETA: --:--:--")
         fps = item.data(JobDataRole.FrameRateRole)
+        self.total_render_seconds += self.item_render_seconds
+        self.item_render_seconds = 0.0
+        self.render_frame_rate = 0.0
         values = {
             "Embedding:": ", ".join(item.data(JobDataRole.EmbeddingNamesRole)),
             "Frames:": f"{frames:,}" if frames is not None else "",
@@ -238,6 +318,7 @@ class JobProgressDialog(QtWidgets.QDialog):
             for label in self.report_labels[field]:
                 label.setVisible(visible)
         if fps is not None and fps > 0:
+            self.render_frame_rate = fps
             self.report_labels["Frame rate:"][1].setText(f"{fps:g} fps")
         if frames is not None and fps is not None and fps > 0:
             hours, remainder = divmod(int(frames / fps), 3600)
@@ -257,7 +338,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.processed_frames_since_update = 0
         self.processing_rate_clock.start()
         self.eta_label.setText("ETA: --:--:--")
-        self.report_labels["f/s:"][1].setText("0.00")
+        self.report_labels["frame/s:"][1].setText("0.00")
         self.skip_update_button.setEnabled(False)
         self.stop_update_button.setEnabled(False)
         self.skip_button.setEnabled(True)
@@ -280,7 +361,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         if self.completed_frames != self.total_frames:
             self.eta_label.setText("ETA: --:--:--")
         self.processed_frames_since_update = 0
-        self.report_labels["f/s:"][1].setText("0.00")
+        self.report_labels["frame/s:"][1].setText("0.00")
 
     @QtCore.Slot(str)
     def job_completed(self, job_name):
@@ -325,9 +406,11 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.report_labels["Failed:"][1].setText(str(len(self.started_job_names.intersection(self.job_errors))))
 
     def stopping(self):
+        self.stop_on_job_errors_checkbox.setEnabled(False)
         self.update_partial_jobs_checkbox.setEnabled(False)
         self.stop_after_completion_checkbox.setEnabled(False)
         self.stop_after_processing_row.setEnabled(False)
+        self.stop_after_rendering_row.setEnabled(False)
         self.skip_update_button.setEnabled(False)
         self.stop_update_button.setEnabled(False)
         self.skip_button.setEnabled(False)
@@ -335,12 +418,25 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.cancel_button.setEnabled(False)
         self.status_label.setText("Stopping job processing…")
 
+    def update_render_limit(self):
+        limit = QtCore.QTime(0, 0, 0).secsTo(self.stop_after_rendering_timeedit.time())
+        self.renderLimitReached.emit(
+            self.stop_after_rendering_checkbox.isChecked()
+            and self.total_render_seconds + self.item_render_seconds >= limit
+        )
+
     def update_runtime(self):
         hours, remainder = divmod(self.runtime_clock.elapsed() // 1000, 3600)
         minutes, seconds = divmod(remainder, 60)
         self.runtime_label.setText(f"Runtime: {hours:02}:{minutes:02}:{seconds:02}")
         if self.processing_rate_clock.isValid():
             self.completed_frames = self.parentWidget().video_processor.media_pipeline.absolute_frames_processed
+            if self.render_frame_rate > 0:
+                self.item_render_seconds = self.completed_frames / self.render_frame_rate
+            hours, remainder = divmod(int(self.total_render_seconds + self.item_render_seconds), 3600)
+            minutes, seconds = divmod(remainder, 60)
+            self.report_labels["Total Render:"][1].setText(f"{hours:02}:{minutes:02}:{seconds:02}")
+            self.update_render_limit()
             processor = self.parentWidget().video_processor
             self.skip_update_button.setEnabled(
                 self.skip_button.isEnabled()
@@ -353,7 +449,7 @@ class JobProgressDialog(QtWidgets.QDialog):
             )
             elapsed_seconds = self.processing_rate_clock.nsecsElapsed() / 1_000_000_000
             rate = self.processed_frames_since_update / elapsed_seconds
-            self.report_labels["f/s:"][1].setText(f"{rate:.2f}")
+            self.report_labels["frame/s:"][1].setText(f"{rate:.2f}")
             if self.completed_frames == self.total_frames:
                 self.eta_label.setText("ETA: 00:00:00")
             elif rate > 0:
@@ -383,6 +479,8 @@ class JobProgressDialog(QtWidgets.QDialog):
             self.minimize()
 
     def finish(self):
+        self.lock_parameters_checkbox.setChecked(False)
+        self.lock_parameters_checkbox.setEnabled(False)
         self.setObjectName("")
         self.dialog_settings.setValue("geometry", self.saveGeometry())
         self.runtime_timer.stop()
@@ -397,6 +495,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         unfinished = self.started_job_names - self.completed_job_names - self.skipped_job_names
         ended_early = processor.batch_cancelled or processor.batch_stopped
         failed = unfinished.intersection(self.job_errors) if ended_early else unfinished
+        failed |= self.started_job_names.intersection(self.job_errors) - self.completed_job_names
         not_started = (len(processor.jobs) - len(self.started_job_names)
                        - len(processor.skipped_jobs) + len(self.skipped_job_names))
         if processor.batch_cancelled:
@@ -408,7 +507,11 @@ class JobProgressDialog(QtWidgets.QDialog):
         else:
             title = "Job Processing Failed"
         self.setWindowTitle(title)
-        self.status_label.setText(f"{command}: {title}. Workspace restoration finished.")
+        restoration = (
+            "Workspace restoration skipped after processing timeout."
+            if processor.processing_timed_out else "Workspace restoration finished."
+        )
+        self.status_label.setText(f"{command}: {title}. {restoration}")
         values = {
             "Completed:": len(self.completed_job_names),
             "Failed:": len(failed),

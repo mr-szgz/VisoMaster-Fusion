@@ -1214,7 +1214,10 @@ class VideoProcessor(QObject):
             return
         self._fatal_processing_error_latched = True
         self.last_processing_error = reason
-        self.stop_processing()
+        if self.main_window.job_processor is not None:
+            self.main_window.job_processor.stop_job_recording()
+        else:
+            self.stop_processing()
 
     def stop_processing(self) -> bool:
         """
