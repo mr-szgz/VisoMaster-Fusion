@@ -314,13 +314,10 @@ def _load_job_target_media(main_window: "MainWindow", data: dict):
     # .run() is synchronous, ensuring media is loaded before proceeding.
     main_window.video_loader_worker.run()
 
-    # Target media thumbnails are batch-enqueued; wait briefly until target_videos
-    # is populated before trying to re-select saved media.
-    wait_start = time.perf_counter()
+    # Drain every thumbnail before selecting media, including large workspaces.
     while list_view_actions._has_pending_target_media_thumbnail_work(main_window):
+        list_view_actions._flush_target_media_thumbnail_batch(main_window)
         QtWidgets.QApplication.processEvents(QEventLoop.AllEvents, 5)
-        if (time.perf_counter() - wait_start) > 2.0:
-            break
 
     QtWidgets.QApplication.processEvents()
 
@@ -402,6 +399,7 @@ def _load_job_embeddings(main_window: "MainWindow", data: dict):
                     payload = torch.load(kv_map_path, map_location="cpu")
                     if isinstance(payload, dict):
                         embed_button.kv_map = payload.get("kv_map")
+                        embed_button.kv_map_list = payload.get("kv_map_list")
                     else:
                         embed_button.kv_map = payload
                     print(
@@ -459,10 +457,11 @@ def _load_job_target_faces_and_params(main_window: "MainWindow", data: dict):
 
             # Load assigned merged embeddings
             target_face_obj.assigned_merged_embeddings.clear()
+            embed_buttons = list_view_actions.get_all_merged_embeddings(main_window)
             for assigned_id in target_face_data.get("assigned_merged_embeddings", []):
-                if assigned_id in main_window.merged_embeddings:
+                if assigned_id in embed_buttons:
                     target_face_obj.assigned_merged_embeddings[assigned_id] = (
-                        main_window.merged_embeddings[assigned_id].embedding_store
+                        embed_buttons[assigned_id].embedding_store
                     )
 
             # IMPORTANT: do not call load_target_face() during restore.
@@ -975,7 +974,7 @@ def load_job_workspace(main_window: "MainWindow", job_name: str):
                     first_face_button.assigned_merged_embeddings.keys()
                 )
                 for embed_id in assigned_embedding_ids:
-                    embed_button = main_window.merged_embeddings.get(embed_id)
+                    embed_button = list_view_actions.get_all_merged_embeddings(main_window).get(embed_id)
                     if embed_button:
                         embed_button.setChecked(True)
                         print(
@@ -1084,6 +1083,7 @@ def _restore_workspace_from_snapshot(main_window: "MainWindow", data: dict):
     try:
         progress_dialog.update_progress(1, total_steps, steps[0])
         _clear_main_window_state(main_window)
+        list_view_actions.reset_embedding_tabs(main_window)
 
         # Clear job name context (we are restoring, not loading a job)
         main_window.current_job_name = None
@@ -1097,9 +1097,16 @@ def _restore_workspace_from_snapshot(main_window: "MainWindow", data: dict):
         _load_job_input_faces(main_window, data)
 
         _wait_for_input_faces_loader(main_window)
+        QtWidgets.QApplication.processEvents()
+        while getattr(main_window, "_pending_input_face_thumbnails", None):
+            list_view_actions._flush_input_face_thumbnail_batch(main_window)
+            QtWidgets.QApplication.processEvents()
 
         progress_dialog.update_progress(4, total_steps, steps[3])
         _load_job_embeddings(main_window, data)
+        list_view_actions.restore_embedding_tabs_state(
+            main_window, data["embedding_tabs_state"]
+        )
 
         progress_dialog.update_progress(5, total_steps, steps[4])
         _load_job_target_faces_and_params(main_window, data)
@@ -1107,6 +1114,10 @@ def _restore_workspace_from_snapshot(main_window: "MainWindow", data: dict):
         progress_dialog.update_progress(6, total_steps, steps[5])
         # Note: is_batch_load=False here ensures swap faces button logic runs if needed during restore
         _load_job_controls_and_state(main_window, data, is_batch_load=False)
+        main_window.control["AutoSwapToggle"] = data["control"]["AutoSwapToggle"]
+        main_window.parameter_widgets["AutoSwapToggle"].set_value(
+            data["control"]["AutoSwapToggle"]
+        )
 
         progress_dialog.update_progress(7, total_steps, steps[6])
         _load_job_markers(main_window, data)
@@ -1140,7 +1151,7 @@ def _restore_workspace_from_snapshot(main_window: "MainWindow", data: dict):
                     first_face_button.assigned_merged_embeddings.keys()
                 )
                 for embed_id in assigned_embedding_ids:
-                    embed_button = main_window.merged_embeddings.get(embed_id)
+                    embed_button = list_view_actions.get_all_merged_embeddings(main_window).get(embed_id)
                     if embed_button:
                         embed_button.setChecked(True)
                         print(
@@ -1175,14 +1186,15 @@ def _restore_workspace_from_snapshot(main_window: "MainWindow", data: dict):
             # If no faces were restored
             main_window.selected_target_face_id = None
             main_window.cur_selected_target_face_button = None
-            main_window.current_widget_parameters = (
-                main_window.default_parameters.copy()
+            main_window.current_widget_parameters = convert_parameters_to_job_type(
+                main_window, data["current_widget_parameters"], misc_helpers.ParametersDict
             )
-            print(
-                "[ERROR] No target faces restored in snapshot, parameter widgets retain default values."
+            common_widget_actions.set_widgets_values_using_face_id_parameters(
+                main_window, face_id=None
             )
 
         # Update slider visuals after restoring everything
+        main_window.videoSeekSlider.setValue(data["current_frame"])
         main_window.videoSeekSlider.update()
 
         # Final refresh ensures graphics view is up-to-date
@@ -1237,16 +1249,18 @@ def _serialize_job_data(
         }
 
     # Job files need assigned embeddings; batch restoration snapshots need all of them.
-    embeddings_to_save = main_window.merged_embeddings
+    all_embeddings = list_view_actions.get_all_merged_embeddings(main_window)
+    embeddings_to_save = all_embeddings
     if assigned_embeddings_only:
         embeddings_to_save = {
-            embedding_id: main_window.merged_embeddings[embedding_id]
+            embedding_id: all_embeddings[embedding_id]
             for target_face in main_window.target_faces.values()
             for embedding_id in target_face.assigned_merged_embeddings
         }
     for embedding_id, embed_button in embeddings_to_save.items():
         kv_map_path = None
-        if getattr(embed_button, "kv_map", None) is not None:
+        if (getattr(embed_button, "kv_map", None) is not None
+                or getattr(embed_button, "kv_map_list", None)):
             kv_data_dir = (
                 main_window.project_root_path / "model_assets" / "reference_kv_data"
             )
@@ -1256,6 +1270,8 @@ def _serialize_job_data(
                 import torch
 
                 payload = {"kv_map": embed_button.kv_map}
+                if getattr(embed_button, "kv_map_list", None):
+                    payload["kv_map_list"] = embed_button.kv_map_list
                 torch.save(payload, str(kv_map_file))
                 kv_map_path = str(kv_map_file)
             except Exception as e:
@@ -1328,6 +1344,12 @@ def _serialize_job_data(
         "last_input_media_folder_path": main_window.last_input_media_folder_path,
         "loaded_embedding_filename": main_window.loaded_embedding_filename,
     }
+    if not assigned_embeddings_only:
+        workspace_data["embedding_tabs_state"] = list_view_actions.get_embedding_tabs_state(main_window)
+        workspace_data["current_frame"] = main_window.videoSeekSlider.value()
+        workspace_data["current_widget_parameters"] = convert_parameters_to_job_type(
+            main_window, main_window.current_widget_parameters, dict
+        )
     return workspace_data
 
 

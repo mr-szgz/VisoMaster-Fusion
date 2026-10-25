@@ -146,12 +146,12 @@ def test_real_callbacks():
 def test_faces_panel_cycles(window):
     app = QtWidgets.QApplication.instance()
     w = QtWidgets.QWidget()
-    w.horizontalLayout_4 = QtWidgets.QHBoxLayout(w)
+    w.gridLayout_2 = QtWidgets.QGridLayout(w)
     w.facesButtonsWidget = QtWidgets.QWidget(w)
     w.controlButtonsLayout = QtWidgets.QVBoxLayout(w.facesButtonsWidget)
     w.targetFacesList = QtWidgets.QListWidget(w)
-    w.horizontalLayout_4.addWidget(w.facesButtonsWidget)
-    w.horizontalLayout_4.addWidget(w.targetFacesList)
+    w.gridLayout_2.addWidget(w.facesButtonsWidget, 1, 0)
+    w.gridLayout_2.addWidget(w.targetFacesList, 1, 1)
     for name in (
         "findTargetFacesButton",
         "clearTargetFacesButton",
@@ -174,4 +174,69 @@ def test_faces_panel_cycles(window):
         main_ui.MainWindow._restore_faces_strip_to_panel(w)
         app.processEvents()
         assert w._faces_list_offset_container.layout().indexOf(w.targetFacesList) >= 0
+        assert w.gridLayout_2.itemAtPosition(1, 1).widget() is w._faces_list_offset_container
         assert w.controlButtonsLayout.contentsMargins().top() == top
+
+
+def test_batch_snapshot_restores_embedding_tabs_and_assignments(window, monkeypatch, tmp_path):
+    from app.helpers.miscellaneous import ParametersDict
+    from app.ui.widgets.actions import job_manager_actions as jobs
+
+    w = window
+    a = add_button(w, "a")
+    a.kv_map = None
+    a.kv_map_list = [{"reference": "first"}, {"reference": "second"}]
+    w.embedding_tab_states[0]["filename"] = "missing-first.json"
+    lva.add_embedding_tab(w, list_widget=QtWidgets.QListWidget(), title="B")
+    b = add_button(w, "b")
+    w.embedding_tab_states[1]["filename"] = "missing-second.json"
+    w.loaded_embedding_filename = "missing-second.json"
+    w.project_root_path = tmp_path
+    w.input_faces = {}
+    w.parameters = {}
+    w.default_parameters = ParametersDict({}, {})
+    w.current_widget_parameters = ParametersDict({}, {})
+    w.target_faces = {"face": SimpleNamespace(
+        cropped_face=np.zeros((1, 1, 3)), embedding_store={},
+        assigned_input_faces={}, assigned_merged_embeddings={"a": a.embedding_store},
+        assigned_input_embedding={"ArcFace": np.array([1., 2.])},
+    )}
+    w.target_videos = {}
+    w.selected_video_button = None
+    w.markers = {}
+    w.issue_frames_by_face = {}
+    w.dropped_frames = set()
+    w.parameter_section_states = {}
+    w.job_marker_pairs = []
+    w.swapfacesButton = QtWidgets.QPushButton()
+    w.editFacesButton = QtWidgets.QPushButton()
+    w.videoSeekSlider = QtWidgets.QSlider()
+    w.last_target_media_folder_path = ""
+    w.last_input_media_folder_path = ""
+    snapshot = jobs._serialize_job_data(w)
+    expected_tabs = snapshot["embedding_tabs_state"]
+    w.target_faces = {}
+    card_actions.clear_merged_embeddings(w)
+    lva.reset_embedding_tabs(w)
+    add_button(w, "job-only")
+    card_actions.clear_merged_embeddings(w)
+    lva.reset_embedding_tabs(w)
+    jobs._load_job_embeddings(w, snapshot)
+    lva.restore_embedding_tabs_state(w, snapshot["embedding_tabs_state"])
+
+    def add_face(window, cropped_face, embedding_store, pixmap, face_id):
+        window.target_faces[face_id] = SimpleNamespace(
+            assigned_merged_embeddings={}, assigned_input_faces={})
+    monkeypatch.setattr(lva, "add_media_thumbnail_to_target_faces_list", add_face)
+    monkeypatch.setattr(jobs.common_widget_actions, "get_pixmap_from_frame", lambda *args: None)
+    jobs._load_job_target_faces_and_params(w, snapshot)
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+    registry = lva.get_all_merged_embeddings(w)
+    assert set(registry) == {"a", "b"}
+    assert all(isValid(button) for button in registry.values())
+    assert lva.get_embedding_tabs_state(w) == expected_tabs
+    assert list(w.merged_embeddings) == ["b"]
+    assert w.loaded_embedding_filename == "missing-second.json"
+    assert registry["a"].kv_map_list == [{"reference": "first"}, {"reference": "second"}]
+    assert list(w.target_faces["face"].assigned_merged_embeddings) == ["a"]
+    np.testing.assert_array_equal(w.target_faces["face"].assigned_merged_embeddings["a"]["ArcFace"], [1., 2.])
