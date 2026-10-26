@@ -1197,6 +1197,8 @@ class _FakeProgressDialog(QObject):
         self.cancelled = False
         self.stop_requested = False
         self.skip_requested = False
+        self.jobs_saved = 0
+        self.media_report_labels = {"Jobs Saved:": (MagicMock(), MagicMock())}
         self.remove_completed_checkbox = MagicMock(
             isChecked=MagicMock(return_value=False)
         )
@@ -1205,6 +1207,8 @@ class _FakeProgressDialog(QObject):
         )
         self.stop_after_processing_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self.stop_after_processing_spinbox = MagicMock(value=MagicMock(return_value=100))
+        self.render_limit_reached = MagicMock(return_value=False)
+        self.stop_after_rendering_timeedit = MagicMock(text=MagicMock(return_value="00:00:01"))
         self.save_skipped_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self.save_jobs_at_frame_zero_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
         self.save_partial_on_skip_checkbox = MagicMock(isChecked=MagicMock(return_value=False))
@@ -1633,9 +1637,10 @@ def test_cancel_current_image_before_save(
 @pytest.mark.parametrize("video_saved", [False, True])
 @pytest.mark.parametrize("stop_after_completion", [False, True])
 @pytest.mark.parametrize("stop_after_processing", [False, True])
+@pytest.mark.parametrize("stop_after_rendering", [False, True])
 def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
     monkeypatch, video_actions_env, image_fails, remove_completed, video_saved,
-    stop_after_completion, stop_after_processing
+    stop_after_completion, stop_after_processing, stop_after_rendering
 ):
     _FakeProgressDialog.instances = []
     main_window = _make_batch_main_window(
@@ -1744,6 +1749,8 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
         _FakeProgressDialog.instances[-1].stop_after_processing_spinbox.value.return_value = 2
         if main_window.video_processor.processing:
             main_window.video_processor.frames_written += 2
+            _FakeProgressDialog.instances[-1].render_limit_reached.return_value = stop_after_rendering
+            assert not _FakeProgressDialog.instances[-1].stop_requested
             if main_window.video_processor.frames_written == 4:
                 main_window.video_processor.processing = False
 
@@ -1782,7 +1789,11 @@ def test_process_batch_images_mixed_batch_uses_report_counts_for_progress(
         assert progress_dialog.set_media_properties.call_args_list[1].args == (["Alice"], 10, 24)
     processed = 1 if image_fails or stopped_after_image else 2
     limit_reached = stop_after_processing and processed >= 2
-    stopped = (stop_after_completion and (not image_fails or video_saved)) or limit_reached
+    render_limit_reached = stop_after_rendering and not stopped_after_image
+    stopped = (stop_after_completion and (not image_fails or video_saved)) or limit_reached or render_limit_reached
+    assert ("Rendered length limit reached: 00:00:01" in message) == render_limit_reached
+    if not stopped_after_image:
+        assert main_window.video_processor.frames_written == 4
     assert ("Processed item limit reached: 2" in message) == limit_reached
     if stopped:
         assert "Batch processing stopped." in message

@@ -2212,6 +2212,19 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         stop_limit_layout.addWidget(self.stop_after_processing_checkbox)
         stop_limit_layout.addWidget(self.stop_after_processing_spinbox)
         stop_limit_layout.addStretch()
+        self.stop_after_rendering_row = QtWidgets.QWidget(self)
+        render_limit_layout = QtWidgets.QHBoxLayout(self.stop_after_rendering_row)
+        render_limit_layout.setContentsMargins(0, 0, 0, 0)
+        self.stop_after_rendering_checkbox = QtWidgets.QCheckBox("Stop after rendering", self.stop_after_rendering_row)
+        self.stop_after_rendering_checkbox.setToolTip(
+            "Finish and save the current item, then stop when Total Render reaches the selected length"
+        )
+        self.stop_after_rendering_timeedit = QtWidgets.QTimeEdit(self.stop_after_rendering_row)
+        self.stop_after_rendering_timeedit.setDisplayFormat("HH:mm:ss")
+        self.stop_after_rendering_timeedit.setTime(QtCore.QTime(1, 0, 0))
+        render_limit_layout.addWidget(self.stop_after_rendering_checkbox)
+        render_limit_layout.addWidget(self.stop_after_rendering_timeedit)
+        render_limit_layout.addStretch()
         self.save_skipped_checkbox = QtWidgets.QCheckBox("Save skipped items as jobs", self)
         self.save_skipped_checkbox.setToolTip(
             "Save the skipped item with its current settings as a job to process later"
@@ -2282,6 +2295,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         for name in (
             "remove_completed_checkbox",
             "stop_after_processing_checkbox",
+            "stop_after_rendering_checkbox",
             "save_skipped_checkbox", "save_partial_on_skip_checkbox",
             "save_jobs_at_frame_zero_checkbox",
             "minimum_partial_frames_checkbox",
@@ -2336,6 +2350,15 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         )
         self.stop_after_processing_spinbox.setEnabled(self.stop_after_processing_checkbox.isChecked())
         self.stop_after_processing_checkbox.toggled.connect(self.stop_after_processing_spinbox.setEnabled)
+        if self.checkbox_settings.contains("stop_after_rendering"):
+            self.stop_after_rendering_timeedit.setTime(
+                self.checkbox_settings.value("stop_after_rendering", type=QtCore.QTime)
+            )
+        self.stop_after_rendering_timeedit.timeChanged.connect(
+            partial(self.checkbox_settings.setValue, "stop_after_rendering")
+        )
+        self.stop_after_rendering_timeedit.setEnabled(self.stop_after_rendering_checkbox.isChecked())
+        self.stop_after_rendering_checkbox.toggled.connect(self.stop_after_rendering_timeedit.setEnabled)
         self.minimum_partial_frames_row.setEnabled(self.save_partial_on_skip_checkbox.isChecked())
         self.save_partial_on_skip_checkbox.toggled.connect(self.minimum_partial_frames_row.setEnabled)
         self.minimum_partial_frames_spinbox.setEnabled(self.minimum_partial_frames_checkbox.isChecked())
@@ -2346,7 +2369,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.media_report_layout = QtWidgets.QGridLayout()
         self.media_report_layout.setColumnStretch(1, 1)
         self.media_report_labels = {}
-        for row, field in enumerate(("Embedding:", "Frames:", "Frame rate:", "Length:", "frame/s:", "Item progress:", "Total Render:")):
+        for row, field in enumerate(("Embedding:", "Frames:", "Frame rate:", "Length:", "frame/s:", "Jobs Saved:", "Item progress:")):
             field_label = QtWidgets.QLabel(field, self.media_report)
             value_label = QtWidgets.QLabel(self.media_report)
             value_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
@@ -2354,13 +2377,14 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             self.media_report_layout.addWidget(value_label, row, 1)
             self.media_report_labels[field] = (field_label, value_label)
         self.media_report_labels["frame/s:"][1].setText("0.00")
+        self.jobs_saved = 0
+        self.media_report_labels["Jobs Saved:"][1].setText("0")
         self.media_report_labels["Item progress:"][1].setText("0.0%")
-        self.media_report_labels["Total Render:"][1].setText("00:00:00")
         self.total_render_seconds = 0.0
         self.item_render_seconds = 0.0
         self.render_frame_rate = 0.0
         self.eta_label = QtWidgets.QLabel("ETA: --:--:--", self.media_report)
-        self.media_report_layout.addWidget(self.eta_label, row - 1, 2)
+        self.media_report_layout.addWidget(self.eta_label, row, 2)
         self.remaining_frames = 0
         self.processing_rate_clock = QtCore.QElapsedTimer()
         self.processed_frames_since_update = 0
@@ -2374,12 +2398,22 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.checkbox_separator.setFrameShape(QtWidgets.QFrame.HLine)
         self.buttons_separator = QtWidgets.QFrame(self)
         self.buttons_separator.setFrameShape(QtWidgets.QFrame.HLine)
+        self.render_report = QtWidgets.QWidget(self)
+        render_metrics = QtWidgets.QFormLayout(self.render_report)
+        render_metrics.setContentsMargins(0, 0, 0, 0)
+        for field in ("Total Render:", "Render/m:"):
+            label = QtWidgets.QLabel(field, self.render_report)
+            value = QtWidgets.QLabel("00:00:00", self.render_report)
+            value.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+            render_metrics.addRow(label, value)
+            self.media_report_labels[field] = (label, value)
         self.runtime_label = QtWidgets.QLabel("Runtime: 00:00:00", self)
         self.runtime_label.adjustSize()
         self.setMinimumHeight(
             self.sizeHint().height() + self.remove_completed_checkbox.sizeHint().height()
             + self.stop_after_completion_checkbox.sizeHint().height()
             + self.stop_after_processing_row.sizeHint().height() + 12
+            + self.stop_after_rendering_row.sizeHint().height() + 12
             + self.save_skipped_checkbox.sizeHint().height() + 12
             + self.save_partial_on_skip_checkbox.sizeHint().height() + 12
             + self.save_jobs_at_frame_zero_checkbox.sizeHint().height() + 12
@@ -2390,6 +2424,7 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             + self.auto_skip_shorter_row.sizeHint().height() + 12
             + self.auto_skip_delay_row.sizeHint().height() + 12
             + self.media_report.sizeHint().height() + 62
+            + self.render_report.sizeHint().height() + 12
         )
         self.setMinimumWidth(
             self.sizeHint().width() + self.runtime_label.width()
@@ -2447,6 +2482,14 @@ class ProgressDialog(QtWidgets.QProgressDialog):
             self.processed_frames_since_update = 0
             self.processing_rate_clock.restart()
 
+        rendered_per_minute = (
+            (self.total_render_seconds + self.item_render_seconds)
+            * 60_000_000_000 / self.runtime_clock.nsecsElapsed()
+        )
+        hours, remainder = divmod(int(rendered_per_minute), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        self.media_report_labels["Render/m:"][1].setText(f"{hours:02}:{minutes:02}:{seconds:02}")
+
     @QtCore.Slot()
     def processing_started(self):
         self.processed_frames_since_update = 0
@@ -2466,6 +2509,13 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.media_report_labels["frame/s:"][1].setText("0.00")
         if self.remaining_frames != 0:
             self.eta_label.setText("ETA: --:--:--")
+
+    def render_limit_reached(self):
+        limit = QtCore.QTime(0, 0, 0).secsTo(self.stop_after_rendering_timeedit.time())
+        return (
+            self.stop_after_rendering_checkbox.isChecked()
+            and self.total_render_seconds + self.item_render_seconds >= limit
+        )
 
     def set_item_progress(self, completed_frames, total_frames):
         if self.render_frame_rate > 0:
@@ -2594,7 +2644,12 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         bar = self.findChild(QtWidgets.QProgressBar)
         cancel_button = self.cancel_button
         self.suppress_notifications_checkbox.adjustSize()
-        delay_y = cancel_button.y() - self.auto_skip_delay_row.sizeHint().height() - 12
+        render_height = self.render_report.sizeHint().height()
+        self.render_report.setGeometry(
+            bar.x(), cancel_button.y() - render_height - 12, bar.width(), render_height
+        )
+        self.buttons_separator.setGeometry(bar.x(), self.render_report.y() - 7, bar.width(), 2)
+        delay_y = self.buttons_separator.y() - self.auto_skip_delay_row.sizeHint().height() - 12
         self.auto_skip_delay_row.setGeometry(bar.x(), delay_y, bar.width(), self.auto_skip_delay_row.sizeHint().height())
         shorter_y = delay_y - self.auto_skip_shorter_row.sizeHint().height() - 12
         self.auto_skip_shorter_row.setGeometry(bar.x(), shorter_y, bar.width(), self.auto_skip_shorter_row.sizeHint().height())
@@ -2602,7 +2657,11 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.auto_skip_row.setGeometry(bar.x(), auto_skip_y, bar.width(), self.auto_skip_row.sizeHint().height())
         suppress_checkbox_y = auto_skip_y - self.suppress_notifications_checkbox.height() - 12
         self.suppress_notifications_checkbox.move(bar.x(), suppress_checkbox_y)
-        stop_limit_y = suppress_checkbox_y - self.stop_after_processing_row.sizeHint().height() - 12
+        render_limit_y = suppress_checkbox_y - self.stop_after_rendering_row.sizeHint().height() - 12
+        self.stop_after_rendering_row.setGeometry(
+            bar.x(), render_limit_y, bar.width(), self.stop_after_rendering_row.sizeHint().height()
+        )
+        stop_limit_y = render_limit_y - self.stop_after_processing_row.sizeHint().height() - 12
         self.stop_after_processing_row.setGeometry(
             bar.x(), stop_limit_y, bar.width(), self.stop_after_processing_row.sizeHint().height()
         )
@@ -2626,7 +2685,6 @@ class ProgressDialog(QtWidgets.QProgressDialog):
         self.save_skipped_checkbox.adjustSize()
         save_checkbox_y = partial_checkbox_y - self.save_skipped_checkbox.height() - 12
         self.save_skipped_checkbox.move(bar.x(), save_checkbox_y)
-        self.buttons_separator.setGeometry(bar.x(), cancel_button.y() - 7, bar.width(), 2)
         self.remove_completed_checkbox.adjustSize()
         checkbox_y = save_checkbox_y - self.remove_completed_checkbox.height() - 12
         self.remove_completed_checkbox.move(bar.x(), checkbox_y)

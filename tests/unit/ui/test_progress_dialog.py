@@ -663,7 +663,13 @@ def test_skip_requires_confirmation(progress_dialog_module, qapp, monkeypatch, r
 def test_batch_total_render_uses_each_items_fps(progress_dialog_module, qapp):
     dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 6000)
     total = dialog.media_report_labels["Total Render:"][1]
+    render_rate = dialog.media_report_labels["Render/m:"][1]
     assert total.text() == "00:00:00"
+    assert render_rate.text() == "00:00:00"
+    runtime_ms = 120_000
+    dialog.runtime_clock = SimpleNamespace(
+        elapsed=lambda: runtime_ms, nsecsElapsed=lambda: runtime_ms * 1_000_000
+    )
     for frames, fps, expected in (
         (25, 25, "00:00:01"),
         (15, 30, "00:00:01"),
@@ -682,12 +688,24 @@ def test_batch_total_render_uses_each_items_fps(progress_dialog_module, qapp):
         assert total.text() == expected
     dialog.show()
     _flush_qt_events(qapp)
-    assert total.y() > dialog.media_report_labels["Item progress:"][1].geometry().bottom()
+    assert dialog.buttons_separator.geometry().bottom() < dialog.render_report.y()
+    assert total.geometry().bottom() < render_rate.y()
+    assert dialog.render_report.geometry().bottom() < dialog.runtime_label.y()
+    assert dialog.render_report.geometry().bottom() < dialog.cancel_button.y()
+    progress = dialog.media_report_labels["Item progress:"][1]
+    assert progress.geometry().center().y() == dialog.eta_label.geometry().center().y()
     assert dialog.media_report.geometry().bottom() < dialog.remove_completed_checkbox.y()
+    dialog.update_runtime()
+    assert render_rate.text() == "00:30:31"
+    runtime_ms = 240_000
+    dialog.update_runtime()
+    assert render_rate.text() == "00:15:15"
+    assert total.text() == "01:01:02"
     dialog.close_without_confirmation()
     assert total.text() == "01:01:02"
     fresh = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 1000)
     assert fresh.media_report_labels["Total Render:"][1].text() == "00:00:00"
+    assert fresh.media_report_labels["Render/m:"][1].text() == "00:00:00"
     fresh.close_without_confirmation()
 
 
@@ -760,6 +778,43 @@ def test_stop_after_processing_settings_and_layout(progress_dialog_module, qapp)
     assert reopened.stop_after_processing_spinbox.isEnabled()
     reopened.stop_after_processing_checkbox.setChecked(False)
     assert not reopened.stop_after_processing_spinbox.isEnabled()
+    reopened.close_without_confirmation()
+
+
+@pytest.mark.qt
+def test_stop_after_rendering_settings_and_limit(progress_dialog_module, qapp):
+    dialog = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 3000)
+    assert not dialog.stop_after_rendering_checkbox.isChecked()
+    assert not dialog.stop_after_rendering_timeedit.isEnabled()
+    assert dialog.stop_after_rendering_timeedit.text() == "01:00:00"
+    dialog.stop_after_rendering_timeedit.setTime(QtCore.QTime(0, 0, 2))
+    dialog.stop_after_rendering_checkbox.setChecked(True)
+    assert dialog.stop_after_rendering_timeedit.isEnabled()
+    dialog.set_media_properties([], 100, 25)
+    dialog.set_item_progress(25, 100)
+    assert not dialog.render_limit_reached()
+    dialog.set_media_properties([], 100, 30)
+    dialog.set_item_progress(29, 100)
+    assert not dialog.render_limit_reached()
+    dialog.set_item_progress(30, 100)
+    assert dialog.render_limit_reached()
+    assert not dialog.stop_requested
+    dialog.stop_after_rendering_timeedit.setTime(QtCore.QTime(0, 0, 3))
+    assert not dialog.render_limit_reached()
+    dialog.stop_after_rendering_timeedit.setTime(QtCore.QTime(0, 0, 2))
+    dialog.stop_after_rendering_checkbox.setChecked(False)
+    assert not dialog.render_limit_reached()
+    dialog.stop_after_rendering_checkbox.setChecked(True)
+    dialog.show()
+    _flush_qt_events(qapp)
+    assert dialog.stop_after_processing_row.geometry().bottom() < dialog.stop_after_rendering_row.y()
+    assert dialog.stop_after_rendering_row.geometry().bottom() < dialog.suppress_notifications_checkbox.y()
+    dialog.close_without_confirmation()
+    reopened = progress_dialog_module.ProgressDialog("Working", "Cancel", 0, 1000)
+    assert reopened.stop_after_rendering_checkbox.isChecked()
+    assert reopened.stop_after_rendering_timeedit.isEnabled()
+    assert reopened.stop_after_rendering_timeedit.text() == "00:00:02"
+    assert not reopened.render_limit_reached()
     reopened.close_without_confirmation()
 
 

@@ -74,13 +74,12 @@ class JobProgressDialog(QtWidgets.QDialog):
         report.addWidget(self.eta_label, row, 2)
         layout.addLayout(report)
         metrics = QtWidgets.QFormLayout()
-        for field in ("Completed:", "Failed:", "Skipped:", "Total Render:"):
+        for field in ("Completed:", "Failed:", "Skipped:"):
             label = QtWidgets.QLabel(field, self)
             value = QtWidgets.QLabel("0", self)
             value.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
             metrics.addRow(label, value)
             self.report_labels[field] = (label, value)
-        self.report_labels["Total Render:"][1].setText("00:00:00")
         layout.addLayout(metrics)
         self.detail_text = QtWidgets.QPlainTextEdit(self)
         self.detail_text.setReadOnly(True)
@@ -102,7 +101,7 @@ class JobProgressDialog(QtWidgets.QDialog):
         self.lock_parameters_checkbox = QtWidgets.QCheckBox("Lock Parameters", self)
         self.lock_parameters_checkbox.setToolTip(
             "Carry subsequent edits in Swap strength and likeness, Masks, Textures and colors, "
-            "and Blend Adjustments to all faces and markers in following jobs. "
+            "Blend Adjustments, and Hair Matting (MODNet) to all faces and markers in following jobs. "
             "Each job keeps its swapper model. Uncheck to clear carried edits; "
             "current settings stay unchanged. Applies only to this queue run."
         )
@@ -201,6 +200,14 @@ class JobProgressDialog(QtWidgets.QDialog):
         buttons_separator.setFrameShape(QtWidgets.QFrame.HLine)
         buttons_separator.setFrameShadow(QtWidgets.QFrame.Sunken)
         layout.addWidget(buttons_separator)
+        render_metrics = QtWidgets.QFormLayout()
+        for field in ("Total Render:", "Render/m:"):
+            label = QtWidgets.QLabel(field, self)
+            value = QtWidgets.QLabel("00:00:00", self)
+            value.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+            render_metrics.addRow(label, value)
+            self.report_labels[field] = (label, value)
+        layout.addLayout(render_metrics)
         buttons = QtWidgets.QHBoxLayout()
         self.runtime_label = QtWidgets.QLabel("Runtime: 00:00:00", self)
         buttons.addWidget(self.runtime_label)
@@ -255,6 +262,7 @@ class JobProgressDialog(QtWidgets.QDialog):
             if any(name in SWAPPER_LAYOUT_DATA[section] for section in (
                 "Swap strength and likeness", "Masks",
                 "Textures and colors", "Blend Adjustments",
+                "Hair Matting (MODNet)",
             )):
                 self.parameter_overrides[name] = value
 
@@ -461,6 +469,13 @@ class JobProgressDialog(QtWidgets.QDialog):
                 self.eta_label.setText("ETA: --:--:--")
             self.processed_frames_since_update = 0
             self.processing_rate_clock.restart()
+        rendered_per_minute = (
+            (self.total_render_seconds + self.item_render_seconds)
+            * 60_000_000_000 / self.runtime_clock.nsecsElapsed()
+        )
+        hours, remainder = divmod(int(rendered_per_minute), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        self.report_labels["Render/m:"][1].setText(f"{hours:02}:{minutes:02}:{seconds:02}")
 
     def minimize(self):
         self.hide()

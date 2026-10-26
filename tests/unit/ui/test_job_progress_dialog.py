@@ -591,7 +591,13 @@ def test_job_total_render_uses_each_jobs_fps(tmp_path):
         window.video_processor = video
         dialog = job_progress_dialog.JobProgressDialog(window, {"A": item})
         total = dialog.report_labels["Total Render:"][1]
+        render_rate = dialog.report_labels["Render/m:"][1]
         assert total.text() == "00:00:00"
+        assert render_rate.text() == "00:00:00"
+        runtime_ms = 120_000
+        dialog.runtime_clock = SimpleNamespace(
+            elapsed=lambda: runtime_ms, nsecsElapsed=lambda: runtime_ms * 1_000_000
+        )
         reached = []
         dialog.renderLimitReached.connect(reached.append)
         assert not dialog.stop_after_rendering_timeedit.isEnabled()
@@ -624,8 +630,19 @@ def test_job_total_render_uses_each_jobs_fps(tmp_path):
             assert total.text() == expected
         dialog.show()
         app.processEvents()
-        assert total.y() > dialog.report_labels["Skipped:"][1].geometry().bottom()
-        assert total.geometry().bottom() < dialog.lock_parameters_checkbox.y()
+        separator = max(
+            (frame for frame in dialog.findChildren(QtWidgets.QFrame)
+             if frame.frameShape() == QtWidgets.QFrame.HLine),
+            key=lambda frame: frame.y(),
+        )
+        assert total.y() > separator.geometry().bottom()
+        assert render_rate.y() > total.geometry().bottom()
+        assert render_rate.geometry().bottom() < dialog.runtime_label.y()
+        assert render_rate.text() == "00:30:31"
+        runtime_ms = 240_000
+        dialog.update_runtime()
+        assert render_rate.text() == "00:15:15"
+        assert total.text() == "01:01:02"
         dialog.stop_after_rendering_timeedit.setTime(QtCore.QTime(2, 0, 0))
         assert reached[-1] is False
         dialog.stop_after_rendering_timeedit.setTime(QtCore.QTime(0, 12, 0))

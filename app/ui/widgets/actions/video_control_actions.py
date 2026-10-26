@@ -2908,6 +2908,7 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
     failed_count = 0
     skipped_count = 0
     processing_limit_reached = False
+    render_limit_reached = False
 
     try:
         # 7. Processing Loop
@@ -2931,6 +2932,8 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
                     for face_id in (main_window.target_faces if process_all_faces else [main_window.selected_target_face_id]):
                         main_window.parameters[face_id] = main_window.current_widget_parameters.copy()
                     job_name = job_manager_actions.save_default_job(main_window, media_widget)
+                    progress_dialog.jobs_saved += 1
+                    progress_dialog.media_report_labels["Jobs Saved:"][1].setText(str(progress_dialog.jobs_saved))
                     job_path = job_manager_actions.get_jobs_dir(main_window) / f"{job_name}.json"
                     with job_path.open(encoding="utf-8") as job_file:
                         job_data = json.load(job_file)
@@ -3256,11 +3259,16 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
             finally:
                 progress_dialog.processing_stopped()
+                if not progress_dialog.confirmedCanceled() and progress_dialog.render_limit_reached():
+                    render_limit_reached = True
+                    progress_dialog.stop_requested = True
                 if progress_dialog.skip_requested:
                     if progress_dialog.save_skipped_checkbox.isChecked():
                         for face_id in (main_window.target_faces if process_all_faces else [main_window.selected_target_face_id]):
                             main_window.parameters[face_id] = main_window.current_widget_parameters.copy()
                         job_name = job_manager_actions.save_default_job(main_window, media_widget)
+                        progress_dialog.jobs_saved += 1
+                        progress_dialog.media_report_labels["Jobs Saved:"][1].setText(str(progress_dialog.jobs_saved))
                         job_path = job_manager_actions.get_jobs_dir(main_window) / f"{job_name}.json"
                         with job_path.open(encoding="utf-8") as job_file:
                             job_data = json.load(job_file)
@@ -3339,6 +3347,8 @@ def process_batch_images(main_window: "MainWindow", process_all_faces: bool):
 
         if processing_limit_reached:
             result_msg += f"\nProcessed item limit reached: {progress_dialog.stop_after_processing_spinbox.value()}"
+        if render_limit_reached:
+            result_msg += f"\nRendered length limit reached: {progress_dialog.stop_after_rendering_timeedit.text()}"
         result_msg += f"\nSkipped: {skipped_count}"
         result_msg += f"\n{progress_dialog.runtime_label.text()}"
         progress_dialog.deleteLater()
