@@ -716,7 +716,11 @@ def load_saved_workspace(
         data_filename = False
     if data_filename:
         with open(data_filename, "r", encoding="utf-8") as data_file:
-            data = json.load(data_file)
+            try:
+                data = json.load(data_file)
+            except json.JSONDecodeError as e:
+                print(f"[ERROR] Failed to load workspace {data_filename}: {e}")
+                return
         try:
             window_state = data.get("window_state_data", {})
             list_view_actions.clear_stop_loading_input_media(main_window)
